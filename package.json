@@ -1,0 +1,83 @@
+{
+  "name": "koishi-plugin-chatluna-bilibili-slop",
+  "version": "0.2.0",
+  "description": "个人使用，不推荐任何人下载",
+  "type": "commonjs",
+  "main": "lib/index.cjs",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "resources",
+    "README.md",
+    "NOTICE.md",
+    "LICENSE"
+  ],
+  "license": "MIT",
+  "keywords": [
+    "koishi",
+    "plugin",
+    "chatbot",
+    "chatluna",
+    "bilibili"
+  ],
+  "engines": {
+    "node": ">=20.19"
+  },
+  "scripts": {
+    "pretest": "npm run build",
+    "build": "tsc --emitDeclarationOnly && node build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/*.test.ts",
+    "check:host": "node scripts/check-host.cjs",
+    "prepack": "npm run build"
+  },
+  "dependencies": {
+    "@initencounter/sst": "^0.0.1",
+    "@langchain/core": "^0.3.80",
+    "zod": "3.25.76"
+  },
+  "peerDependencies": {
+    "@lumia.wang/koishi-plugin-adapter-bilibili": "^0.1.2",
+    "koishi": "^4.18.9",
+    "koishi-plugin-chatluna": "^1.3.22 || ^1.4.0-alpha.33"
+  },
+  "devDependencies": {
+    "@lumia.wang/koishi-plugin-adapter-bilibili": "^0.1.2",
+    "@types/node": "^22.18.7",
+    "esbuild": "^0.25.10",
+    "koishi": "^4.18.9",
+    "koishi-plugin-chatluna": "1.4.0-alpha.43",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  },
+  "koishi": {
+    "description": {
+      "zh": "个人使用，不推荐任何人下载",
+      "en": "For personal use only. Not recommended for anyone to download."
+    },
+    "category": "ai",
+    "service": {
+      "required": [
+        "chatluna"
+      ],
+      "optional": [
+        "sst"
+      ]
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lumia1998/koishi-plugin-chatluna-bilibili-slop.git"
+  },
+  "homepage": "https://github.com/lumia1998/koishi-plugin-chatluna-bilibili-slop",
+  "bugs": {
+    "url": "https://github.com/lumia1998/koishi-plugin-chatluna-bilibili-slop/issues"
+  }
+}
