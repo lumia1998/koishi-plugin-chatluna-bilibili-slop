@@ -4,90 +4,122 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import type { Context } from 'koishi'
-import type { Api } from '../src/api.js'
-import { Config } from '../src/config.js'
-import { runPush, startPush, startWatch } from '../src/push.js'
+import { defaultSettings, type Settings } from '../src/settings.js'
+import { shanghaiNow, startPush } from '../src/push.js'
 import { Store } from '../src/store.js'
-import type { Comment, Video } from '../src/types.js'
 
-const item: Video = {
-    bvid: 'BV1xx411c7mD', aid: 1, cid: 1, title: '抽象视频', author: 'up', uid: '7',
-    duration: 180, pubdate: Math.floor(Date.now() / 1000), play: 1, comments: 10,
-    description: '', url: 'https://www.bilibili.com/video/BV1xx411c7mD', pic: 'https://i0.hdslb.com/x.jpg',
-    sources: ['up:7']
-}
-const comments: Comment[] = [
-    { rpid: '1', root: '0', parent: '0', uid: '1', name: 'a', text: '@朋友 请你吃', likes: 1, mentions: true },
-    { rpid: '2', root: '0', parent: '0', uid: '2', name: 'b', text: '@朋友 呕 逆天', likes: 1, mentions: true }
-]
-
-async function fixture(patch: Partial<Config> = {}) {
-    const dir = await mkdtemp(join(tmpdir(), 'bili-push-'))
-    const store = new Store(dir)
-    await store.init()
-    const broadcasts: unknown[][] = []
+function fixture(patch: Partial<Settings> = {}) {
+    const dirs: string[] = []
     const intervalFns: (() => void)[] = []
     const ctx = {
-        broadcast: async (channels: string[], content: unknown) => { broadcasts.push([channels, content]) },
         setInterval: (fn: () => void) => { intervalFns.push(fn); return () => {} },
-        sleep: async () => {},
-        logger: () => ({ warn: () => {} })
+        logger: () => ({ info: () => {}, warn: () => {} }),
     } as unknown as Context
-    const api = {
-        bot: { selfId: '42' },
-        search: async () => [item], up: async () => [item], related: async () => [],
-        info: async () => item, comments: async () => comments,
-        resolve: async (name: string) => ({ id: '7', name })
-    } as unknown as Api
-    const logger = { warn: () => {} }
-    const cfg = Config({ channels: ['qq:group1'], pushTimes: ['12:00'], pushCount: 3, watchUps: ['某UP'], watchInterval: 30, ...patch })
-    return { dir, store, ctx, api, cfg, logger, broadcasts, intervalFns, clean: () => rm(dir, { recursive: true, force: true }) }
+    const settings = { ...defaultSettings(), ...patch }
+    const logger = { info: () => {}, warn: () => {} }
+    const intervalMs: number[] = []
+    const ctxWithMs = {
+        ...ctx,
+        setInterval: (fn: () => void, ms: number) => { intervalFns.push(fn); intervalMs.push(ms); return () => {} },
+    } as unknown as Context
+    return {
+        dirs, intervalFns, intervalMs, ctx: ctxWithMs, settings, logger,
+        async store() {
+            const dir = await mkdtemp(join(tmpdir(), 'bili-push-'))
+            dirs.push(dir)
+            const store = new Store(dir)
+            await store.init()
+            return store
+        },
+        clean: () => Promise.all(dirs.map((dir) => rm(dir, { recursive: true, force: true }))),
+    }
 }
 
-test('channels 为空时搬运和监听都不启动', async () => {
-    const f = await fixture({ channels: [], pushTimes: ['12:00'], watchUps: ['某UP'] })
+test('pushTimes 为空时不安装定时器', async () => {
+    const f = fixture({ pushTimes: [] })
     try {
-        // startPush/startWatch are only called when channels.length > 0 (see index.ts);
-        // calling them directly here would still install timers, so we assert the gate.
-        assert.equal(f.cfg.channels.length, 0)
+        const store = await f.store()
+        startPush(f.ctx, f.settings, store, () => ({}) as never, f.logger, async () => {})
+        assert.equal(f.intervalFns.length, 0)
     } finally { await f.clean() }
 })
 
-test('push 时间槽到点只推一次且记录槽位', async () => {
-    const shanghai = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit', hour12: false })
-    const time = shanghai.format(new Date()).replace('24:', '00:')
-    const f = await fixture({ pushTimes: [time] })
+test('非法时刻被过滤，一个合法时刻都没有时也不装定时器', async () => {
+    const f = fixture({ pushTimes: ['25:00', 'abc', ''] })
     try {
-        startPush(f.ctx, f.cfg, f.store, () => f.api, f.logger)
+        const store = await f.store()
+        startPush(f.ctx, f.settings, store, () => ({}) as never, f.logger, async () => {})
+        assert.equal(f.intervalFns.length, 0)
+    } finally { await f.clean() }
+})
+
+test('到点只跑一次：同一分钟重复 tick 不重复触发，槽位落盘', async () => {
+    const now = shanghaiNow()
+    const f = fixture({ pushTimes: [now.time] })
+    try {
+        const store = await f.store()
+        let runs = 0
+        startPush(f.ctx, f.settings, store, () => ({}) as never, f.logger, async () => { runs++ })
         assert.equal(f.intervalFns.length, 1)
-        await f.intervalFns[0]() // slot matches -> one push
-        await new Promise((resolve) => setTimeout(resolve, 20)) // let runPush finish
-        assert.equal(f.broadcasts.length, 1)
-        const slotKey = Object.keys(f.store.state.pushSlots)[0]
-        assert.ok(slotKey)
-        await f.intervalFns[0]() // same slot already fired today -> nothing
+        assert.equal(f.intervalMs[0], 60_000)
+
+        f.intervalFns[0]()
         await new Promise((resolve) => setTimeout(resolve, 20))
-        assert.equal(f.broadcasts.length, 1)
-        assert.ok(f.store.state.shown[item.bvid])
-        // A second manual runPush is also deduplicated via shown.
-        await runPush(f.ctx, f.cfg, f.store, () => f.api, f.logger)
-        assert.equal(f.broadcasts.length, 1)
+        assert.equal(runs, 1)
+
+        f.intervalFns[0]()
+        await new Promise((resolve) => setTimeout(resolve, 20))
+        assert.equal(runs, 1, '同一时刻不应重复触发')
+
+        const key = Object.keys(store.state.pushSlots)[0]
+        assert.equal(key, `${now.day} ${now.time}`)
     } finally { await f.clean() }
 })
 
-test('UP 监听首次只建基线，第二次有新投稿才推送', async () => {
-    const f = await fixture({ watchUps: ['某UP'], watchInterval: 30 })
+test('未到点不触发', async () => {
+    const now = shanghaiNow()
+    const other = now.time === '03:07' ? '04:07' : '03:07'
+    const f = fixture({ pushTimes: [other] })
     try {
-        startWatch(f.ctx, f.cfg, f.store, () => f.api, f.logger)
-        assert.equal(f.intervalFns.length, 1)
-        await f.intervalFns[0]() // first tick: baseline only
-        assert.equal(f.broadcasts.length, 0)
-        assert.ok(f.store.state.watch['7'])
+        const store = await f.store()
+        let runs = 0
+        startPush(f.ctx, f.settings, store, () => ({}) as never, f.logger, async () => { runs++ })
+        f.intervalFns[0]()
+        await new Promise((resolve) => setTimeout(resolve, 20))
+        assert.equal(runs, 0)
+        assert.equal(Object.keys(store.state.pushSlots).length, 0)
+    } finally { await f.clean() }
+})
 
-        const newer = { ...item, bvid: 'BV1yy411c7mE', pubdate: Math.floor(Date.now() / 1000) + 10 }
-        f.api.up = async () => [newer, item]
-        await f.intervalFns[0]() // second tick: new upload pushed
-        assert.equal(f.broadcasts.length, 1)
-        assert.ok(f.store.state.watch['7'] >= newer.pubdate)
+test('上一轮没跑完时本次 tick 让开，不叠进程', async () => {
+    const now = shanghaiNow()
+    const f = fixture({ pushTimes: [now.time] })
+    try {
+        const store = await f.store()
+        let runs = 0
+        let release: () => void = () => {}
+        startPush(f.ctx, f.settings, store, () => ({}) as never, f.logger,
+            () => new Promise<void>((resolve) => { runs++; release = resolve }))
+        f.intervalFns[0]()
+        assert.equal(runs, 1)
+        f.intervalFns[0]()
+        assert.equal(runs, 1, '正在跑时不叠加')
+        release()
+        await new Promise((resolve) => setTimeout(resolve, 20))
+    } finally { await f.clean() }
+})
+
+test('run() 抛错时只记日志，不把定时器打挂', async () => {
+    const now = shanghaiNow()
+    const f = fixture({ pushTimes: [now.time] })
+    try {
+        const store = await f.store()
+        const warnings: string[] = []
+        startPush(f.ctx, f.settings, store, () => ({}) as never,
+            { info: () => {}, warn: (format: string, ...args: unknown[]) => warnings.push(`${format} ${args.join(' ')}`) },
+            async () => { throw new Error('boom') })
+        f.intervalFns[0]()
+        await new Promise((resolve) => setTimeout(resolve, 20))
+        assert.ok(warnings.some((msg) => msg.includes('boom')))
     } finally { await f.clean() }
 })

@@ -2,22 +2,42 @@
 
 个人使用，不推荐任何人下载。
 
-把 B站能力注册为 ChatLuna 工具：看任意视频内容（字幕 / 语音识别 / AI 总结）、搜视频和用户、收发私信、发评论和回复、关注 UP、按评论区行为寻找抽象/赤石视频，并可定时把找到的"屎视频"推送到聊天群、监听 UP 新投稿。
+把 B站能力注册为 ChatLuna 工具：看任意视频内容（字幕 / 语音识别 / AI 总结）、搬运屎视频到群里、回复私信与评论、查用户、搜索、关注、管理收藏。所有配置都在控制台的「刷B站」面板里，ChatLuna 插件详情页保持空白。
 
-B站登录、凭证和站内 API 复用 [@lumia.wang/koishi-plugin-adapter-bilibili](https://www.npmjs.com/package/@lumia.wang/koishi-plugin-adapter-bilibili)；无字幕转写走 Koishi `sst` 服务（如 doubao-asr）。
+B站登录、Cookie 与站内 API **由本插件原生实现**，不依赖任何 B站适配器：自带扫码登录、官方 Cookie 刷新链路和 WBI 签名。无字幕转写走 Koishi `sst` 服务（如 doubao-asr）。
 
 ## 依赖与安装
 
 - Node.js 20.19+、Koishi 4.18.9+。
 - ChatLuna 1.3.22+ 或 1.4 测试版，使用支持工具调用的模型。
-- @lumia.wang/koishi-plugin-adapter-bilibili 0.1.2+。
-- 可选：`koishi-plugin-doubao-asr` 等 sst 提供者，用于无字幕视频的语音转写。
-
-先在 Koishi 中启用适配器并扫码登录，再安装本插件包并启用。多个 B站 Bot 时用 `selfId` 指定账号。
+- 可选：`koishi-plugin-doubao-asr` 等 sst 提供者，用于无字幕视频的语音转写（需要提供 `transcribe(buffer)`）。
 
 ```bash
 npm install && npm run build && npm pack
 ```
+
+装好后打开控制台左侧的「刷B站」页面，在「配置」标签里扫码登录即可。
+
+## 控制台面板
+
+页面分两个标签，配置全部落盘在 `<data>/chatluna-bilibili-slop/settings.json`，聊天里的工具实时读取同一份。
+
+### 配置
+
+| 分组 | 内容 |
+| --- | --- |
+| 账号状态 | 登录状态、UID、凭证刷新时间、扫码登录（二维码在页面里画）、能力徽章、评论台账 |
+| 偏好设置 | 搜索关键词、追踪作者、视频分区、屏蔽词、最短 / 最长时长 |
+| 发布方式 | ① 评论区 @ 主人（公开可见）② B站私信 ③ 推送到 Koishi 群组（`platform:channelId`，默认 onebot）；三项独立可多选 |
+| 互动方式 | ① 在视频下发表评论 ② 回复一级评论（楼层）③ 回复二级评论（楼中楼）；每小时评论上限、额外 @、私信白名单 |
+| 解析方式 | 优先提取视频原字幕 → 降级调用 Koishi `sst` 服务转写 |
+| 日报 | 选一个 ChatLuna 模型写日报（列表来自 ChatLuna 已加载的对话模型）；选「不用模型」时只输出记录清单 |
+| 高级 | 主人 UID、机器人 UID、权限等级、放行用户、定时搬运时刻、每轮条数、默认收藏夹、编造诱饵 |
+
+### 总结
+
+- **日常日报**：按天汇总当天搬过的视频。点「AI 写日报」会用配置页选中的模型，结合标题、作者、搬运理由与内容摘要写一篇 Markdown 日报；没选模型时显示按记录拼出的清单。可一键复制导出。
+- **照片墙**：当天视频封面拼成的墙；点开任一封面看作者、时长、得分、@ 占比、**搬运理由**、内容摘要与证据热评。
 
 ## 使用
 
@@ -25,8 +45,8 @@ npm install && npm run build && npm pack
 
 ```text
 看看这个视频讲了什么：https://www.bilibili.com/video/BV1xx411c7mD
-帮我找点屎视频
-给主人发私信说我到家了
+搬点屎视频到群里，理由写得缺德一点
+谁在我的视频下面 @ 我了，挑几条回一下
 ```
 
 `video` 参数统一接受 BV 号、av 号、视频页 URL、b23.tv / bili2233.cn 短链；`user` 接受数字 UID 或精确昵称。
@@ -35,62 +55,89 @@ npm install && npm run build && npm pack
 
 | 指令 | 用途 |
 | --- | --- |
-| `bili` | 账号与能力状态 |
+| `bili` | 登录状态与能力总览 |
+| `bili login` | 扫码登录（发二维码，后台轮询） |
+| `bili logout` | 删除本机凭证 |
 | `bili ledger` | 最近评论台账 |
 | `bili verify` | 匿名复核最近评论可见性 |
-| `bili push` | 立即手动跑一次找屎搬运 |
+| `bili push` | 立即按偏好手动搬运一次 |
 
-## 工具（9 个，按配置注册）
+## 工具（8 个）
+
+已注册工具默认对 ChatLuna 和 chatluna-character 开放，character 群聊、私聊均可调用；调用仍受插件权限及互动开关限制。
 
 | 工具 | 说明 |
 | --- | --- |
-| `bili_video` | 视频元信息 + content；字幕 → ASR（需 transcribe）→ AI 总结 → none，12000 字分页 |
-| `bili_comments` | 热评；传 root 读楼中楼 |
-| `bili_search` | 搜索视频或用户 |
-| `bili_user` | 用户资料 + 近 N 天投稿 + 是否已关注 |
-| `bili_follow` | 关注 / 取关（`allowFollow` 开启才注册） |
-| `bili_comment` | 一级评论或回复（`allowComment` 开启才注册）。正文禁 @，`atOwner` 由插件 @ 主人；同视频一条一级评论；每小时 10 条限速 |
-| `bili_dm` | `read` 读私信（默认主人）；`send` 发文字 / 图片，仅主人或白名单（`allowDm` 关闭时 send 拒绝） |
-| `bili_find_slop` | 按热评 @ 密度等行为评分找抽象视频，带证据；已展示 7 天内自动排除 |
-| `bili_status` | 账号、主人、能力开关、最近 20 条评论台账；`verify` 可顺带复核 |
+| `bili_video` | **看视频**：标题、UP、时长、播放、点赞、投币、收藏、分享、评论、弹幕数 + 视频内容；内容按 字幕 → ASR → AI 总结 → none 降级，12000 字分页 |
+| `bili_shuttle` | **搬视频**：按偏好（关键词、作者、时长、过滤词）召回屎视频 / 抽象视频，解析内容后按「发布方式」发到评论区 / 私信 / 群。`reason` 必填，由模型现场写；也可传 `video` 直接搬指定一条 |
+| `bili_inbox` | **信息回复**：读 / 回私信、视频评论、楼中楼、@ 提醒。三个互动开关全关时不注册 |
+| `bili_user` | **用户查询**：昵称、签名、粉丝数、关注数、投稿数、等级、近 N 天投稿、是否已关注 |
+| `bili_status` | **状态查询**：登录状态、Cookie 是否过期、能力开关、最近评论台账；`verify=true` 顺带匿名复核 |
+| `bili_search` | **搜索**：按关键词搜视频（可排序）或用户 |
+| `bili_subscribe` | **订阅**：关注 / 取关 UP |
+| `bili_manage` | **视频管理**：列收藏夹、收藏到指定分类、取消收藏 |
+
+评论安全约束（由插件强制，模型绕不过）：评论正文不能出现 ASCII `@`（插件用 `at_name_to_mid` 真@），评论 + @ 合计 ≤ 150 字，同账号同一视频只发一条一级评论，全局限速 `commentPerHour`，发送结果未知记为 `unknown` 且**永不重发**。
 
 评论可见性：`public` 匿名可见，`pending` 仅登录态可见，`missing` 未查到。发送后约 60 秒插件自动后台复核一次。
 
-## 配置
+## 登录与凭证
 
-| 分组 | 项 | 默认 | 说明 |
-| --- | --- | --- | --- |
-| 账号 | `selfId` | 空 | B站机器人 UID，只有一个时可留空 |
-| | `ownerUid` | 空 | 主人 B站 UID，用于 @ 和默认私信收件人 |
-| 权限 | `authority` | 3 | 工具最低 Koishi 权限 |
-| | `allowedUsers` | [] | 额外允许用户，`platform:userId` |
-| 能力 | `allowComment` | false | 注册 bili_comment |
-| | `allowDm` | false | bili_dm 允许发送 |
-| | `dmWhitelist` | [] | 额外可私信 UID 名单（主人始终可发） |
-| | `allowFollow` | false | 注册 bili_follow |
-| | `transcribe` | false | 无字幕时走 sst 转写音轨 |
-| 找屎 | `keywords` | 内置默认词 | 搜索关键词 |
-| | `ups` | 内置名单 | 追踪 UP 主 UID / 昵称 |
-| 搬运 | `channels` | [] | 推送频道 `platform:channelId`，空则关闭全部推送 |
-| | `pushTimes` | [] | 每日搬运时刻（Asia/Shanghai），如 `["12:00","20:00"]` |
-| | `pushCount` | 3 | 每次搬运条数 |
-| | `watchUps` | [] | 监听新投稿的 UP 主 |
-| | `watchInterval` | 30 | 监听轮询分钟数（最小 10） |
-
-字幕与转写结果按 BV 号持久缓存；已展示视频记录 7 天；评论台账记录发送与可见性状态，未知结果不会自动重发。
+- `bili login` 或面板里的「扫码登录」→ 成功后写 `<data>/chatluna-bilibili-slop/credential.json`（0600）。
+- 扫码确认时**选「记住我 / 长期」**；选 24 小时的话第二天就得重扫。
+- 凭证里同时保存 `refresh_token`，插件每 6 小时和启动 30 秒后各检查一次，需要时走官方链路刷新：`cookie/info → correspondPath → correspond/1 → cookie/refresh → confirm/refresh`。
+- 任何接口返回 `-101` 会先自动刷新一次再重试；刷新也失败才提示重新登录。
+- `bili logout` 删除本机凭证。
 
 ## 存储
 
-`data/chatluna-bilibili-slop/state.json`（version 2）：`comments` 台账、`transcripts` 文本缓存、`shown` 已展示、`watch` UP 基线、`pushSlots` 已推槽位。v1 台账自动迁移；损坏文件拒绝启动。
+`data/chatluna-bilibili-slop/` 下三个文件，全部 tmp + rename 原子写：
+
+| 文件 | 内容 |
+| --- | --- |
+| `settings.json` | 面板里的全部配置 |
+| `credential.json` | B站登录凭证（0600） |
+| `state.json`（version 3） | `comments` 评论台账、`transcripts` 文本缓存、`shown` 已展示、`watch` UP 基线、`pushSlots` 已推槽位、`shuttles` 搬运记录 |
+
+v1 / v2 台账自动迁移到 v3；损坏文件拒绝启动，`settings.json` 损坏则退回默认值。
 
 ## 验证
 
 ```bash
 npm test && npm run typecheck
+npm run build   # 产出 lib/index.cjs + dist/index.js + dist/style.css
 ```
 
 测试全部使用模拟 API，不登录真实账号、不发送真实请求。
 
-## 0.2.0 变更
+## 0.3.0 变更
 
-重构为 9 个交互式工具与内置调度，取代旧的 `bili_prepare`/`bili_finish` 批处理流程（旧工具 bili_prepare、bili_finish、bili_scout、bili_up_feed、bili_reply、bili_favorite_lists、bili_verify、bili_history、bili_subtitle、bili_video_info 已删除）；移除收藏、bait、dmMode、yt-dlp 下载、本地日报归档与 MyGO 专用通道；新增链接解析（av/短链）、定时搬运与 UP 监听。
+**配置全部搬进 WebUI，工具从 10 个收敛为 8 个；登录与站内请求改为原生实现，不再依赖 B站适配器。**
+
+### WebUI 配置与工具收敛
+
+- ChatLuna 原生配置页清空为 `Schema.object({})`；配置改由 `src/settings.ts` + 控制台面板读写，工具侧通过活的 `Proxy` 实时读取，改配置不用重载插件
+- 控制台改为单页两标签：「配置」（账号状态 / 偏好设置 / 发布方式 / 互动方式 / 解析方式 / 日报）与「总结」（日常日报 + 照片墙）
+- 新增 `src/publish.ts`：评论 / 私信 / 群三条投递通道互相独立，评论正文禁用 `@` 并保留链接
+- 新增 `src/summary.ts`：按天生成日报与照片墙数据
+- 新增 `src/report.ts`：日报可选接一个 ChatLuna 模型。模型列表走 `ctx.chatluna.platform.listAllModels('llm')`，生成走 `awaitLoadPlatform` + `createChatModel` + `invoke`，不经过 ChatLuna 的会话/投递层；模型名存 `settings.summaryModel`（只认 `platform/name` 全名），留空就只列记录清单
+- 控制台新增两个 RPC：`bili-slop/models`（可选模型 + 当前选中）与 `bili-slop/summary/generate`（按天生成 AI 日报）
+- 状态卡补上登录账号昵称（查一次缓存）与「上次搬运」（同一轮写入的 `shuttles` 共用一个 `at`，按它归组计数），不再固定 `undefined`
+- 群推送前检查目标平台是否有在线 bot：`broadcast` 对没有在线 bot 的平台是静默空转，现在会先跳过并记警告，不再谎报「已推送」
+- `transcripts` 保留 30 天、`shuttles` 保留 90 天，`prune()` 里按 `at` 清理；状态文件结构不变
+- 移除 `src/config.ts` 里没人调用的 `effectiveKeywords` / `parseWindow`
+- `bili` 命令不再在注册时卡 authority（Koishi 的命令权限是注册时求值的快照，改了要重载才生效）；真正的门槛仍在 action 里每次执行读取的 `access()`
+- 工具收敛：`bili_video` / `bili_shuttle` / `bili_inbox` / `bili_user` / `bili_status` / `bili_search` / `bili_subscribe` / `bili_manage`；旧的 `bili_comments`、`bili_comment`、`bili_reply`、`bili_dm`、`bili_find_slop`、`bili_follow` 不再注册
+- 搬运理由改为模型现场写（`bili_shuttle.reason` 必填），不再由插件拼模板
+- 收藏能力恢复为 `bili_manage`
+- 移除 `cruise` / `cruiseInterval` / `peakValley` / 窗口配置 / `watchUps` / `pushDetail` / `dmMode` / `mode`：定时只由 `pushTimes` 驱动
+- 状态文件升到 version 3，新增 `shuttles`
+
+### 登录与请求原生实现
+
+- 新增 `src/auth.ts`：二维码登录、凭证存储（0600）、官方 Cookie 刷新链路、buvid3 兜底、登录态检查
+- 新增 `src/http.ts`：Cookie 合并、WBI 签名（含每日密钥缓存）、`-101` 自动刷新重试、下载限流
+- 新增 `src/bili.ts`：视频 / 字幕 / AI 总结 / 评论 / 搜索 / 用户 / 关注 / 收藏 / 私信的原生实现
+- 移除 `@lumia.wang/koishi-plugin-adapter-bilibili` 的 peer/dev 依赖
+- 新增 `bili login` / `bili logout`；启动后 30 秒与每 6 小时自动续期
+- 依赖变化：新增 `qrcode`

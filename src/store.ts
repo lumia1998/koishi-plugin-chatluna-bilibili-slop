@@ -4,6 +4,10 @@ import type { Publication, State } from './types.js'
 
 const PUSH_SLOT_TTL = 7 * 86400_000
 const SHOWN_TTL = 7 * 86400_000
+/** 转写正文只服务最近几次「看视频」，留 30 天足够 */
+const TRANSCRIPT_TTL = 30 * 86400_000
+/** 搬运记录是日报 / 照片墙的数据源，留 90 天 */
+const SHUTTLE_TTL = 90 * 86400_000
 
 interface LegacyState {
     version?: number
@@ -13,17 +17,25 @@ interface LegacyState {
 }
 
 function empty(): State {
-    return { version: 2, comments: {}, transcripts: {}, shown: {}, watch: {}, pushSlots: {} }
+    return { version: 3, comments: {}, transcripts: {}, shown: {}, watch: {}, pushSlots: {}, shuttles: {} }
 }
 
 /** Migrates a persisted state of any known version into the version-2 shape. */
 export function migrate(raw: LegacyState): State {
-    if (raw.version === 2) {
+    if (raw.version === 3) {
         const state = raw as unknown as State
-        if (!state.comments || !state.transcripts || !state.shown || !state.watch || !state.pushSlots) {
+        if (!state.comments || !state.transcripts || !state.shown || !state.watch || !state.pushSlots || !state.shuttles) {
             throw new Error('损坏的台账格式')
         }
         return state
+    }
+    if (raw.version === 2) {
+        const state = raw as unknown as State & { version: number }
+        if (!state.comments || !state.transcripts || !state.shown || !state.watch || !state.pushSlots) {
+            throw new Error('损坏的台账格式')
+        }
+        // v2 → v3：补上搬运记录表，其它原样保留
+        return { ...state, version: 3, shuttles: {} }
     }
     if (raw.version === 1) {
         if (!raw.comments || !raw.seen) throw new Error('不支持或损坏的台账格式')
@@ -62,7 +74,7 @@ export class Store {
         await rename(file + '.tmp', file)
     }
 
-    /** Drops expired shown / pushSlot entries before persisting. */
+    /** Drops expired entries before persisting: shown / pushSlot / transcript / shuttle. */
     private prune() {
         const now = Date.now()
         for (const [bvid, at] of Object.entries(this.state.shown)) {
@@ -71,6 +83,14 @@ export class Store {
         for (const slot of Object.keys(this.state.pushSlots)) {
             const at = Date.parse(slot.replace(' ', 'T') + ':00+08:00')
             if (Number.isFinite(at) && now - at > PUSH_SLOT_TTL) delete this.state.pushSlots[slot]
+        }
+        for (const [bvid, record] of Object.entries(this.state.transcripts)) {
+            const at = Number(record?.at)
+            if (!Number.isFinite(at) || now - at > TRANSCRIPT_TTL) delete this.state.transcripts[bvid]
+        }
+        for (const [bvid, record] of Object.entries(this.state.shuttles)) {
+            const at = Date.parse(record?.at)
+            if (!Number.isFinite(at) || now - at > SHUTTLE_TTL) delete this.state.shuttles[bvid]
         }
     }
 
