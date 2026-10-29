@@ -173,6 +173,15 @@ export class Service {
             source = 'summary'
         }
         if (!text) source = 'none'
+        // 每次成功解析都记一条观看历史，控制台的「观看历史」页读它
+        await this.store.locked(async () => {
+            this.store.state.views[bvid] = {
+                bvid: item.bvid, title: item.title, author: item.author, uid: item.uid,
+                url: item.url, pic: item.pic, duration: item.duration, at: new Date().toISOString(),
+                source: source!,
+            }
+            await this.store.save()
+        })
         const full = text || ''
         const slice = full.slice(offset, offset + CONTENT_LIMIT)
         const result: VideoResult = {

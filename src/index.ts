@@ -12,7 +12,6 @@ import { Config } from './config.js'
 import { aiReport, listModels } from './report.js'
 import { Service, RECHECK_DELAY } from './service.js'
 import { SettingsStore, type Settings } from './settings.js'
-import { startPush } from './push.js'
 import { Store } from './store.js'
 import { mountConsole } from './console.js'
 import type { Publication } from './types.js'
@@ -127,7 +126,10 @@ export async function apply(ctx: Context, _pluginConfig: Config) {
             get description() { return describe() }, selector: () => true, createTool: create,
             meta: {
                 source: 'extension', group: name, tags: ['bilibili', 'bili-slop'],
-                defaultAvailability: { enabled: true, main: true, chatluna: true, characterScope: 'all' },
+                defaultAvailability: {
+                    enabled: true, main: true, subAgent: true, chatluna: true,
+                    characterScope: 'all',
+                },
             },
         }))
     }
@@ -168,7 +170,7 @@ export async function apply(ctx: Context, _pluginConfig: Config) {
         return '二维码已发送，扫码后这里会提示结果。'
     }
 
-    /** 手动/定时搬运共用：不经过模型时用证据拼一句理由 */
+    /** 不经过模型时用证据拼一句理由（控制台「立即搬一轮」走这里） */
     async function shuttleNow(reason?: string) {
         const api = makeApi()
         return service.shuttle(api, {
@@ -324,19 +326,14 @@ export async function apply(ctx: Context, _pluginConfig: Config) {
                     lastRun: lastRun(),
                 }
             },
-            shuttleNow: () => shuttleNow('定时搬运：按偏好筛选后推送'),
+            shuttleNow: () => shuttleNow('手动搬运：按偏好筛选后推送'),
             verify: () => service.verify(makeApi()),
             models: () => listModels(ctx),
             report: (day) => aiReport(ctx, store, day, settings.value.summaryModel),
         })
     })
 
-    // 定时：只在配置了目标频道或发布方式时启动
-    const current = settings.value
-    if (current.pushTimes.length) {
-        startPush(ctx, cfg, store, makeApi, logger, () => shuttleNow('定时搬运：按偏好筛选后推送'))
-    }
-
+    // 不定时：搬运只由 `bili_shuttle` 这个 ChatLuna 工具触发（外部触发器自己排期）。
     // authority 不在这里卡：Koishi 的命令权限是注册时求值的，面板里改了要重载才生效。
     // 真正的门槛在 action 里的 access()，每次执行都读当前 settings。
     ctx.command('bili [operation:string]', 'B站插件状态、登录、台账与手动搬运')

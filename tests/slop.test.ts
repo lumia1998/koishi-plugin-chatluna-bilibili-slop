@@ -351,7 +351,7 @@ test('全局限速：超过 commentPerHour 的评论被拒', async () => {
     } finally { await f.clean() }
 })
 
-test('台账迁移：v1 → v3（seen 转 shown）、v2 → v3（补 shuttles）、损坏仍拒绝', async () => {
+test('台账迁移：v1 → v4（seen 转 shown）、v2 / v3 → v4（补 shuttles / views）、损坏仍拒绝', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'bili-migrate-'))
     try {
         const legacy = {
@@ -363,27 +363,41 @@ test('台账迁移：v1 → v3（seen 转 shown）、v2 → v3（补 shuttles）
         await writeFile(join(dir, 'state.json'), JSON.stringify(legacy))
         const store = new Store(dir)
         await store.init()
-        assert.equal(store.state.version, 3)
+        assert.equal(store.state.version, 4)
         assert.equal(store.state.comments['42:BV1xx411c7mD'].text, 'hi')
         assert.ok(store.state.shown[BV])
         assert.deepEqual(store.state.shuttles, {})
+        assert.deepEqual(store.state.views, {})
         assert.equal('runs' in store.state, false)
 
         const v2 = {
-            version: 2, comments: {}, transcripts: {}, shown: { [BV]: 1 }, watch: {}, pushSlots: {},
+            version: 2, comments: {}, transcripts: {}, shown: { [BV]: 1 }, watch: {},
         }
         await writeFile(join(dir, 'state.json'), JSON.stringify(v2))
         const fromV2 = new Store(dir)
         await fromV2.init()
-        assert.equal(fromV2.state.version, 3)
+        assert.equal(fromV2.state.version, 4)
         assert.deepEqual(fromV2.state.shuttles, {})
+        assert.deepEqual(fromV2.state.views, {})
+
+        // v3 → v4：只补观看历史表，搬运记录原样保留
+        const v3 = {
+            version: 3, comments: {}, transcripts: {}, shown: {}, watch: {},
+            shuttles: { [BV]: { bvid: BV, at: '2024-01-01T00:00:00+08:00' } },
+        }
+        await writeFile(join(dir, 'state.json'), JSON.stringify(v3))
+        const fromV3 = new Store(dir)
+        await fromV3.init()
+        assert.equal(fromV3.state.version, 4)
+        assert.deepEqual(fromV3.state.views, {})
+        assert.ok(fromV3.state.shuttles[BV])
 
         await writeFile(join(dir, 'state.json'), '{bad json')
         await assert.rejects(new Store(dir).init())
 
-        // v3 缺字段视为损坏，不静默补
-        await writeFile(join(dir, 'state.json'), JSON.stringify({ version: 3, comments: {} }))
-        assert.throws(() => migrate({ version: 3, comments: {} } as never), /损坏/)
+        // 缺字段视为损坏，不静默补
+        await writeFile(join(dir, 'state.json'), JSON.stringify({ version: 4, comments: {} }))
+        assert.throws(() => migrate({ version: 4, comments: {} } as never), /损坏/)
     } finally { await rm(dir, { recursive: true, force: true }) }
 })
 

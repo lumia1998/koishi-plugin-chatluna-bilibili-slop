@@ -16,8 +16,9 @@ Node.js 20.19+、Koishi 4.18.9+、ChatLuna ^1.3.22 或 ^1.4.0-alpha.33。**不�
 
 - ChatLuna 插件详情页是 `Schema.object({})`，**不接受任何输入**。
 - 全部字段定义在 `src/settings.ts` 的 `Settings`，落盘 `<data>/chatluna-bilibili-slop/settings.json`。
-- 读写只走控制台 RPC：`bili-slop/settings` 与 `bili-slop/settings/update`；`normalize()` 丢弃未知键、按目标类型强转、钳制数值、过滤非法 `channels` / `pushTimes`。
+- 读写只走控制台 RPC：`bili-slop/settings` 与 `bili-slop/settings/update`；`normalize()` 丢弃未知键、按目标类型强转、钳制数值、过滤非法 `channels`。
 - 日报相关另有两个 RPC：`bili-slop/models` 返回 `{models, selected}`（模型列表来自 ChatLuna 的 `platform.listAllModels('llm')`），`bili-slop/summary/generate` 按天生成正文。两者都要求 authority 3。
+- 两个历史页各有一个只读 RPC：`bili-slop/history` 返回 `shuttles` 全量（时间倒序），`bili-slop/views` 返回 `views` 全量（时间倒序）。同样 authority 3。
 - `summaryModel` 只接受 `platform/name` 全名（`/^[^/\s]+\/\S+$/`），填半截或带空格一律归空；空值表示不调模型，日报只列记录清单。
 - 运行时通过 `liveSettings()` 返回的 `Proxy` 每次读当前值，改配置不需要重建 `Service`。
 
@@ -81,13 +82,14 @@ Node.js 20.19+、Koishi 4.18.9+、ChatLuna ^1.3.22 或 ^1.4.0-alpha.33。**不�
 - `src/summary.ts`：`dailyReport(store, day)` 出 Markdown，`wall(store, day)` 出照片墙分组，`reportIndex(store, days)` 出可查日期。切日口径固定 `Asia/Shanghai`。
 - `src/report.ts`：`listModels(ctx)` 给配置页下拉，`aiReport(ctx, store, day, modelName)` 走 `awaitLoadPlatform` → `createChatModel` → `model.value.invoke([SystemMessage, HumanMessage], {timeout: 120s})`，正文用 `getMessageContent()` 取。不经过 ChatLuna 的会话与投递层；失败直接抛，前端保留原来的清单正文。
 
-## 调度（不经过 LLM）
+## 调度
 
-- 唯一调度源是 `settings.pushTimes`（`HH:MM` 数组）：每分钟检查一次 Asia/Shanghai 时刻，命中且今日该槽位未推则跑一轮。
-- 单飞：上一轮未结束时本轮让开；槽位在跑之前落盘，进程重启不会重复推。
+插件**不自带调度器**。搬运只由 ChatLuna 工具 `bili_shuttle` 触发，排期交给 ChatLuna 的触发器或外部插件；控制台的「立即搬一轮」走同一个 `service.shuttle()`。工具在注册时 `defaultAvailability` 全开（`enabled / main / subAgent / chatluna`，`characterScope: 'all'`），装上即可被主插件与角色插件调用。
 
-## 状态（version 3）
+## 状态（version 4）
 
-`state.json`：`comments`（台账）、`transcripts`（bvid→文本，字幕 / ASR 共用）、`shown`（7 天去重）、`watch`（UP 基线）、`pushSlots`（每日槽位）、`shuttles`（搬运记录）。v1 / v2 自动迁移到 v3；损坏拒绝启动。`store.locked` 只包状态读写，绝不包网络或转写。
+`state.json`：`comments`（台账）、`transcripts`（bvid→文本，字幕 / ASR 共用）、`shown`（7 天去重）、`watch`（UP 基线）、`shuttles`（搬运记录）、`views`（观看历史）。v1 / v2 / v3 自动迁移到 v4；损坏拒绝启动。`store.locked` 只包状态读写，绝不包网络或转写。
 
-`prune()` 按 `at` 清理两个无界增长的映射：`transcripts` 留 30 天（只服务最近几次「看视频」），`shuttles` 留 90 天（日报 / 照片墙的数据源）。结构不变，无需再升版本。
+`views` 由 `service.video()` 在拿到视频信息后写入（`bvid / title / author / uid / url / pic / duration / at / source`），控制台「观看历史」直接读它，和搬运记录互不影响。
+
+`prune()` 按 `at` 清理三个无界增长的映射：`transcripts` 留 30 天（只服务最近几次「看视频」），`shuttles` 与 `views` 各留 90 天。

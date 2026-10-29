@@ -115,7 +115,7 @@ export function dailyReport(store: Store, day: string): string {
     return `${title}\n\n共 ${items.length} 条\n\n${items.map(entry).join('\n\n')}`
 }
 
-/** 照片墙数据：按天分组的搬运记录；day 为空时取近 7 天 */
+/** 按天分组的搬运记录；day 为空时取近 7 天 */
 export function wall(store: Store, day: string): { day: string, items: ShuttleRecord[] }[] {
     const target = String(day || '').trim()
     if (target) {

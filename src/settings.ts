@@ -8,7 +8,7 @@ import { join } from 'node:path'
  * 控制台（`src/console.ts` + `client/`）读写，落盘为 `<data>/bilibili-slop/settings.json`。
  *
  * 分组顺序 = WebUI「配置页」从上到下的顺序：
- *   账号状态 → 偏好设置 → 发布方式 → 互动方式 → 解析方式 → 日报
+ *   账号状态 → 主人 → 偏好设置 → 发布方式 → 互动方式 → 解析方式 → 日报 → 高级
  */
 export interface Settings {
     // —— 账号状态 ——
@@ -79,8 +79,6 @@ export interface Settings {
     authority: number
     /** 额外放行用户，platform:userId */
     allowedUsers: string[]
-    /** 每日自动搬运时刻，如 ["12:00","20:00"]；空 = 不定时 */
-    pushTimes: string[]
     /** 每轮最多搬几条 */
     perRun: number
 }
@@ -121,7 +119,6 @@ export function defaultSettings(): Settings {
         favFolderId: 0,
         authority: 3,
         allowedUsers: [],
-        pushTimes: [],
         perRun: 3,
     }
 }
@@ -175,7 +172,6 @@ export function normalize(raw: unknown): Settings {
     // 模型全名是 `platform/name`；填半截（只有名字）没法加载，直接当没配
     out.summaryModel = /^[^/\s]+\/\S+$/.test(String(out.summaryModel || '')) ? String(out.summaryModel) : ''
     out.channels = (out.channels as string[]).filter((item) => /^[\w.-]+:[\w.-]+$/.test(item))
-    out.pushTimes = (out.pushTimes as string[]).filter((item) => /^([01]?\d|2[0-3]):[0-5]\d$/.test(item))
     return out as unknown as Settings
 }
 

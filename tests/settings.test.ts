@@ -31,7 +31,6 @@ test('normalize 丢弃未知键，并按目标类型归一', () => {
         ownerUid: 12345, keywords: [' 赤石 ', '', 42, '抽象'],
         publishGroup: 'false', commentPerHour: '999', perRun: -3,
         channels: ['onebot:123456', 'bad', 'qq:group1'],
-        pushTimes: ['12:00', '25:00', 'abc', '9:05'],
         unknownKey: 'should be dropped',
     })
     assert.equal(cfg.ownerUid, '12345')
@@ -40,7 +39,6 @@ test('normalize 丢弃未知键，并按目标类型归一', () => {
     assert.equal(cfg.commentPerHour, 30) // 钳到上限
     assert.equal(cfg.perRun, 1)         // 钳到下限
     assert.deepEqual(cfg.channels, ['onebot:123456', 'qq:group1'])
-    assert.deepEqual(cfg.pushTimes, ['12:00', '9:05'])
     assert.equal('unknownKey' in cfg, false)
 })
 

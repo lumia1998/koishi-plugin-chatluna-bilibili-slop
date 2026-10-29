@@ -20,24 +20,32 @@ npm install && npm run build && npm pack
 
 ## 控制台面板
 
-页面分两个标签，配置全部落盘在 `<data>/chatluna-bilibili-slop/settings.json`，聊天里的工具实时读取同一份。
+页面分四个标签：**配置**、**搬运历史**、**日报**、**观看历史**。配置全部落盘在 `<data>/chatluna-bilibili-slop/settings.json`，聊天里的工具实时读取同一份。
 
 ### 配置
 
 | 分组 | 内容 |
 | --- | --- |
-| 账号状态 | 登录状态、UID、凭证刷新时间、扫码登录（二维码在页面里画）、能力徽章、评论台账 |
+| 账号状态 | 扫码登录（二维码在页面里画）、评论台账；页面右侧常驻「概况」栏，列出登录账号、主人 UID、凭证刷新时间和每个能力开关的开 / 关 |
+| 主人 | 主人 UID：评论区 @ 的对象、私信默认收件人；可一键设为当前登录账号 |
 | 偏好设置 | 搜索关键词、追踪作者、视频分区、屏蔽词、最短 / 最长时长 |
 | 发布方式 | ① 评论区 @ 主人（公开可见）② B站私信 ③ 推送到 Koishi 群组（`platform:channelId`，默认 onebot）；三项独立可多选 |
 | 互动方式 | ① 在视频下发表评论 ② 回复一级评论（楼层）③ 回复二级评论（楼中楼）；每小时评论上限、额外 @、私信白名单 |
 | 解析方式 | 优先提取视频原字幕 → 降级调用 Koishi `sst` 服务转写 |
 | 日报 | 选一个 ChatLuna 模型写日报（列表来自 ChatLuna 已加载的对话模型）；选「不用模型」时只输出记录清单 |
-| 高级 | 主人 UID、机器人 UID、权限等级、放行用户、定时搬运时刻、每轮条数、默认收藏夹、编造诱饵 |
+| 高级 | 机器人 UID、权限等级、放行用户、每轮条数、默认收藏夹、编造诱饵 |
 
-### 总结
+### 搬运历史
 
-- **日常日报**：按天汇总当天搬过的视频。点「AI 写日报」会用配置页选中的模型，结合标题、作者、搬运理由与内容摘要写一篇 Markdown 日报；没选模型时显示按记录拼出的清单。可一键复制导出。
-- **照片墙**：当天视频封面拼成的墙；点开任一封面看作者、时长、得分、@ 占比、**搬运理由**、内容摘要与证据热评。
+按时间倒序排成时间线，每条一张卡片：封面、时长、标题、作者、播放 / 评论、**搬运理由**、投递渠道与得分。点卡片看详情（UID、搬运时间、得分、@ 占比、内容摘要、证据热评、已推送通道）。页面顶部是「立即搬一轮」「复核评论」，排期交给 ChatLuna 触发器时这里只用于当场补一轮。
+
+### 日报
+
+按天汇总当天搬过的视频，正文用 Markdown 渲染。点「AI 写日报」会用配置页选中的模型，结合标题、作者、搬运理由与内容摘要写一篇日报；没选模型时显示按记录拼出的清单。可一键复制导出。
+
+### 观看历史
+
+每次聊天里用 `bili_video` 看视频都会记一条（封面、标题、作者、时长、时间，以及这次正文来自原字幕 / 语音转写 / AI 总结 / 无）。同样按时间线排列，点开直接在 B站播放。
 
 ## 使用
 
@@ -97,7 +105,7 @@ npm install && npm run build && npm pack
 | --- | --- |
 | `settings.json` | 面板里的全部配置 |
 | `credential.json` | B站登录凭证（0600） |
-| `state.json`（version 3） | `comments` 评论台账、`transcripts` 文本缓存、`shown` 已展示、`watch` UP 基线、`pushSlots` 已推槽位、`shuttles` 搬运记录 |
+| `state.json`（version 3） | `comments` 评论台账、`transcripts` 文本缓存、`shown` 已展示、`watch` UP 基线、`shuttles` 搬运记录 |
 
 v1 / v2 台账自动迁移到 v3；损坏文件拒绝启动，`settings.json` 损坏则退回默认值。
 
@@ -117,9 +125,10 @@ npm run build   # 产出 lib/index.cjs + dist/index.js + dist/style.css
 ### WebUI 配置与工具收敛
 
 - ChatLuna 原生配置页清空为 `Schema.object({})`；配置改由 `src/settings.ts` + 控制台面板读写，工具侧通过活的 `Proxy` 实时读取，改配置不用重载插件
-- 控制台改为单页两标签：「配置」（账号状态 / 偏好设置 / 发布方式 / 互动方式 / 解析方式 / 日报）与「总结」（日常日报 + 照片墙）
+- 控制台改为单页四标签：「配置」（左侧目录：账号状态 / 主人 / 偏好设置 / 发布方式 / 互动方式 / 解析方式 / 日报 / 高级；右侧常驻「概况」状态栏）、「搬运历史」（时间线 + 手动操作）、「日报」（Markdown 渲染）、「观看历史」（`bili_video` 看过的视频）
+- 直链打开或刷新 `/bili-slop` 不再被控制台 auth 的会话恢复跳去用户资料页
 - 新增 `src/publish.ts`：评论 / 私信 / 群三条投递通道互相独立，评论正文禁用 `@` 并保留链接
-- 新增 `src/summary.ts`：按天生成日报与照片墙数据
+- 新增 `src/summary.ts`：按天生成日报与按天分组的搬运记录
 - 新增 `src/report.ts`：日报可选接一个 ChatLuna 模型。模型列表走 `ctx.chatluna.platform.listAllModels('llm')`，生成走 `awaitLoadPlatform` + `createChatModel` + `invoke`，不经过 ChatLuna 的会话/投递层；模型名存 `settings.summaryModel`（只认 `platform/name` 全名），留空就只列记录清单
 - 控制台新增两个 RPC：`bili-slop/models`（可选模型 + 当前选中）与 `bili-slop/summary/generate`（按天生成 AI 日报）
 - 状态卡补上登录账号昵称（查一次缓存）与「上次搬运」（同一轮写入的 `shuttles` 共用一个 `at`，按它归组计数），不再固定 `undefined`
@@ -130,8 +139,9 @@ npm run build   # 产出 lib/index.cjs + dist/index.js + dist/style.css
 - 工具收敛：`bili_video` / `bili_shuttle` / `bili_inbox` / `bili_user` / `bili_status` / `bili_search` / `bili_subscribe` / `bili_manage`；旧的 `bili_comments`、`bili_comment`、`bili_reply`、`bili_dm`、`bili_find_slop`、`bili_follow` 不再注册
 - 搬运理由改为模型现场写（`bili_shuttle.reason` 必填），不再由插件拼模板
 - 收藏能力恢复为 `bili_manage`
-- 移除 `cruise` / `cruiseInterval` / `peakValley` / 窗口配置 / `watchUps` / `pushDetail` / `dmMode` / `mode`：定时只由 `pushTimes` 驱动
-- 状态文件升到 version 3，新增 `shuttles`
+- 移除 `cruise` / `cruiseInterval` / `peakValley` / 窗口配置 / `watchUps` / `pushDetail` / `dmMode` / `mode`
+- 移除定时搬运（`pushTimes` / `startPush` / `pushSlots`）：排期交给 ChatLuna 触发器，插件只保留 `bili_shuttle` 工具与控制台的「立即搬一轮」
+- 状态文件升到 version 4，新增 `shuttles`（搬运记录）与 `views`（观看历史）
 
 ### 登录与请求原生实现
 

@@ -73,7 +73,7 @@ export interface VideoStats {
     danmaku: number
 }
 
-/** 一条搬运记录：WebUI「总结页」照片墙的数据源 */
+/** 一条搬运记录：控制台「搬运历史」与日报的数据源 */
 export interface ShuttleRecord {
     bvid: string
     title: string
@@ -86,7 +86,7 @@ export interface ShuttleRecord {
     at: string
     /** 模型现场写的搬运理由（为什么搬这条） */
     reason: string
-    /** 内容摘要，给照片墙详情用 */
+    /** 内容摘要，给搬运历史详情用 */
     content?: string
     /** 播放 / 评论数快照，日报与照片墙详情用 */
     play?: number
@@ -95,6 +95,21 @@ export interface ShuttleRecord {
     atRatio?: number
     evidence?: string[]
     delivery: ('comment' | 'dm' | 'group')[]
+}
+
+/** 一条观看记录：`bili_video` 每次成功解析视频时写一条，控制台「观看历史」的数据源 */
+export interface ViewRecord {
+    bvid: string
+    title: string
+    author: string
+    uid: string
+    url: string
+    pic?: string
+    duration: number
+    /** ISO 时间 */
+    at: string
+    /** 这次读到的正文来自哪里 */
+    source?: 'subtitle' | 'asr' | 'summary' | 'none'
 }
 
 /** B站 @ 提醒 / 回复提醒 */
@@ -111,14 +126,15 @@ export interface InboxItem {
     scope?: 'video' | 'thread' | 'dm'
 }
 export interface State {
-    version: 3
+    version: 4
     comments: Record<string, Publication>
     transcripts: Record<string, Transcript>
     shown: Record<string, number>
     watch: Record<string, number>
-    pushSlots: Record<string, true>
     /** v3：搬运记录，照片墙与日报的数据源 */
     shuttles: Record<string, ShuttleRecord>
+    /** v4：看过的视频，控制台「观看历史」的数据源 */
+    views: Record<string, ViewRecord>
 }
 /**
  * 插件内部当作 bot 用的最小门面（原生实现，不再依赖适配器的 Bot 类型）。

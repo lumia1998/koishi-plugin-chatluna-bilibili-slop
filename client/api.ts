@@ -1,6 +1,6 @@
 import { send as rawSend } from '@koishijs/client'
 import type { Settings } from '../src/settings.js'
-import type { ShuttleRecord } from '../src/types.js'
+import type { ShuttleRecord, ViewRecord } from '../src/types.js'
 
 /**
  * 控制台的 `send` 只认识内置事件（`ping` 等），自定义 RPC 由本插件自己约定。
@@ -18,6 +18,8 @@ export interface Rpc {
   'bili-slop/reports': { args: [{ days?: number }], result: { day: string, count: number }[] }
   'bili-slop/models': { args: [], result: { models: ReportModel[], selected: string } }
   'bili-slop/summary/generate': { args: [{ day?: string }], result: { report: string, model: string } }
+  'bili-slop/history': { args: [], result: ShuttleRecord[] }
+  'bili-slop/views': { args: [], result: ViewRecord[] }
 }
 
 /** 配置页下拉里的一个 ChatLuna 模型；name 是 `platform/name` 全名 */

@@ -5,7 +5,7 @@ import type { ReportModel } from './report.js'
 import type { Settings, SettingsStore } from './settings.js'
 import type { Store } from './store.js'
 import { dailyReport, reportIndex, wall } from './summary.js'
-import type { ShuttleRecord } from './types.js'
+import type { ShuttleRecord, ViewRecord } from './types.js'
 
 /**
  * 控制台「刷B站」面板的状态快照。
@@ -42,7 +42,7 @@ const dayFormat = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
 })
 
-/** Asia/Shanghai 的今天；日报与照片墙都按这个时区切日 */
+/** Asia/Shanghai 的今天；日报与历史都按这个时区切日 */
 function today(): string {
     return dayFormat.format(new Date())
 }
@@ -73,6 +73,8 @@ declare module '@koishijs/console' {
         'bili-slop/reports'(input?: { days?: number }): Promise<{ day: string, count: number }[]>
         'bili-slop/models'(): Promise<{ models: ReportModel[], selected: string }>
         'bili-slop/summary/generate'(input?: { day?: string }): Promise<{ report: string, model: string }>
+        'bili-slop/history'(): Promise<ShuttleRecord[]>
+        'bili-slop/views'(): Promise<ViewRecord[]>
     }
 }
 
@@ -141,7 +143,7 @@ export function mountConsole(ctx: Context, deps: ConsoleDeps): void {
 
     console.addListener('bili-slop/summary', async (input) => {
         const day = normalizeDay(input?.day)
-        // dailyReport 给 Markdown 正文，wall 摊平成照片墙用的记录列表
+        // dailyReport 给 Markdown 正文，wall 摊平成按天分组的记录列表
         return {
             report: dailyReport(store, day),
             wall: wall(store, day).flatMap((group) => group.items),
@@ -158,6 +160,16 @@ export function mountConsole(ctx: Context, deps: ConsoleDeps): void {
         models: deps.models(),
         selected: settings.value.summaryModel,
     }), { authority: AUTHORITY })
+
+    // 搬运历史页：全量搬运记录，最新在前
+    console.addListener('bili-slop/history', async () =>
+        Object.values(store.state.shuttles).sort((a, b) => b.at.localeCompare(a.at)),
+    { authority: AUTHORITY })
+
+    // 观看历史页：`bili_video` 每次成功解析都会记一条
+    console.addListener('bili-slop/views', async () =>
+        Object.values(store.state.views).sort((a, b) => b.at.localeCompare(a.at)),
+    { authority: AUTHORITY })
 
     // 总结页的「AI 写日报」：慢（一次模型调用），前端按钮要自己处理 loading
     console.addListener('bili-slop/summary/generate', async (input) => {

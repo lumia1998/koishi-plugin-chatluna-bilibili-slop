@@ -12,9 +12,12 @@
           type="button"
           role="tab"
           :aria-selected="active === tab.id"
-          :class="{ active: active === tab.id }"
+          :class="['panel-tab', { 'is-active': active === tab.id }]"
           @click="active = tab.id"
-        >{{ tab.label }}</button>
+        >
+          <span class="panel-tab-icon" aria-hidden="true" v-html="tab.icon"></span>
+          <span>{{ tab.label }}</span>
+        </button>
       </nav>
     </header>
 
@@ -36,10 +39,9 @@
         @patch="patch"
         @error="showError"
       />
-      <BiliSummary
-        v-show="active === 'summary'"
-        @error="showError"
-      />
+      <BiliHistory v-show="active === 'history'" @error="showError" />
+      <BiliDaily v-show="active === 'daily'" @error="showError" />
+      <BiliViews v-show="active === 'views'" @error="showError" />
     </template>
   </div>
 </template>
@@ -47,13 +49,37 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import BiliConfig from './BiliConfig.vue'
-import BiliSummary from './BiliSummary.vue'
+import BiliDaily from './BiliDaily.vue'
+import BiliHistory from './BiliHistory.vue'
+import BiliViews from './BiliViews.vue'
 import { call } from './api'
 import type { Settings } from '../src/settings.js'
 
+/** 24×24 线性图标，颜色跟随按钮文字色 */
+const tabIcon = (body: string) =>
+  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`
+
 const tabs = [
-  { id: 'config', label: '配置' },
-  { id: 'summary', label: '总结' },
+  {
+    id: 'config',
+    label: '配置',
+    icon: tabIcon('<line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>'),
+  },
+  {
+    id: 'history',
+    label: '搬运历史',
+    icon: tabIcon('<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>'),
+  },
+  {
+    id: 'daily',
+    label: '日报',
+    icon: tabIcon('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>'),
+  },
+  {
+    id: 'views',
+    label: '观看历史',
+    icon: tabIcon('<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>'),
+  },
 ] as const
 
 type TabId = typeof tabs[number]['id']
@@ -126,9 +152,14 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .bili-panel {
-  max-width: 60rem;
+  box-sizing: border-box;
+  max-width: 84rem;
   margin: 0 auto;
-  padding: 8px 0 48px;
+  padding-top: 8px;
+  padding-bottom: 48px;
+  padding-right: 16px;
+  /* 控制台页面容器没有左内边距，窄屏时会被左侧活动栏压住；居中留白够多时不额外让位 */
+  padding-left: max(16px, calc(var(--activity-width, 4rem) + 16px - max(0px, (100vw - 84rem) / 2)));
   color: var(--k-text-dark, #333);
 }
 
@@ -156,33 +187,53 @@ onBeforeUnmount(() => {
 
 .panel-tabs {
   display: inline-flex;
-  gap: 4px;
-  padding: 3px;
-  border-radius: 10px;
-  background: var(--k-hover-bg, #f3f5f8);
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 12px;
+  background: var(--k-card-bg, #fff);
 }
 
-.panel-tabs button {
+.panel-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 14px;
   border: 0;
-  padding: 6px 18px;
-  border-radius: 8px;
+  border-radius: 9px;
   background: transparent;
   color: var(--k-text-normal, #555);
   font: inherit;
   font-size: 14px;
+  line-height: 1;
+  white-space: nowrap;
   cursor: pointer;
   transition: background 0.2s, color 0.2s;
 }
 
-.panel-tabs button:hover {
+.panel-tab:hover {
+  background: var(--k-hover-bg, #f3f5f8);
   color: var(--k-text-dark, #333);
 }
 
-.panel-tabs button.active {
-  background: var(--k-card-bg, #fff);
+.panel-tab.is-active {
   color: var(--k-color-primary, #527ca6);
   font-weight: 600;
-  box-shadow: 0 1px 4px #0000001a;
+  background: color-mix(in srgb, var(--k-color-primary, #527ca6) 12%, transparent);
+}
+
+.panel-tab-icon {
+  display: inline-flex;
+  flex: none;
+  width: 24px;
+  height: 24px;
+}
+
+.panel-tab-icon :deep(svg) {
+  display: block;
+  width: 24px;
+  height: 24px;
 }
 
 .panel-error {
