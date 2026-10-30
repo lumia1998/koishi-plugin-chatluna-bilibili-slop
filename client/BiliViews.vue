@@ -2,8 +2,8 @@
   <div class="bili-views">
     <section class="k-card">
       <div class="views-head">
-        <h3>观看历史</h3>
-        <span class="group-tip">{{ records.length ? `共 ${records.length} 条` : '每次用 bili_video 看视频都会记一条' }}</span>
+        <h3>品鉴历史</h3>
+        <span class="group-tip">{{ records.length ? `共 ${records.length} 条` : '每次用 bili_video 看视频都会记一条，bili_take 写锐评' }}</span>
         <button type="button" class="k-button frameless refresh" :disabled="loading" @click="load">
           {{ loading ? '刷新中…' : '刷新' }}
         </button>
@@ -32,12 +32,19 @@
                 <span class="tl-tag subtle">{{ record.bvid }}</span>
               </div>
             </div>
+
+            <div class="tl-verdict">
+              <div v-for="row in verdictRows(record)" :key="row.kind" class="vd-row" :class="[row.kind, { empty: row.empty }]">
+                <span class="vd-label">{{ row.label }}</span>
+                <p class="vd-text">{{ row.text }}</p>
+              </div>
+            </div>
           </a>
         </li>
       </ol>
 
       <p v-else-if="!loading" class="empty-text">
-        还没有观看记录。让 ChatLuna 看一个视频（`bili_video`）之后，这里会按时间列出来。
+        还没有品鉴记录。让 ChatLuna 看一个视频（`bili_video`）之后，这里会按时间列出来，右边是搬运理由和视频内容。
       </p>
     </section>
   </div>
@@ -57,6 +64,13 @@ const SOURCE_TEXT: Record<string, string> = {
   none: '无正文',
 }
 
+interface VerdictRow {
+  kind: 'reason' | 'content'
+  label: string
+  text: string
+  empty: boolean
+}
+
 const records = ref<ViewRecord[]>([])
 const loading = ref(false)
 
@@ -64,8 +78,27 @@ function load() {
   loading.value = true
   call('bili-slop/views')
     .then((result) => { records.value = result })
-    .catch((err: Error) => emit('error', `读取观看历史失败：${err.message}`))
+    .catch((err: Error) => emit('error', `读取品鉴历史失败：${err.message}`))
     .finally(() => { loading.value = false })
+}
+
+/**
+ * 右侧固定两行：搬运理由 → 视频内容。
+ * 每张卡都有这两行，没数据时给灰字占位；标签颜色固定（棕 / 绿），
+ * 标签列宽由 CSS grid 固定，所以整列的标签和正文纵向对齐。
+ */
+function verdictRows(record: ViewRecord): VerdictRow[] {
+  const reason = (record.reason || '').trim()
+  const content = (record.excerpt || record.description || '').trim()
+
+  return [
+    reason
+      ? { kind: 'reason', label: '搬运理由', text: reason, empty: false }
+      : { kind: 'reason', label: '搬运理由', text: '没搬过这条视频，还没有理由。', empty: true },
+    content
+      ? { kind: 'content', label: '视频内容', text: content, empty: false }
+      : { kind: 'content', label: '视频内容', text: '没取到正文，只有标题和简介。', empty: true },
+  ]
 }
 
 function firstChar(title: string): string {
@@ -132,7 +165,7 @@ onMounted(load)
 
 .tl-item {
   display: grid;
-  grid-template-columns: 96px 28px 1fr;
+  grid-template-columns: 96px 28px minmax(0, 1fr);
   align-items: stretch;
 }
 
@@ -181,6 +214,7 @@ onMounted(load)
 
 .tl-card {
   display: flex;
+  align-items: stretch;
   gap: 14px;
   margin: 6px 0 6px 6px;
   padding: 10px;
@@ -241,6 +275,7 @@ onMounted(load)
   display: flex;
   flex-direction: column;
   gap: 6px;
+  flex: 1 1 auto;
   min-width: 0;
 }
 
@@ -288,8 +323,73 @@ onMounted(load)
   color: var(--k-text-light, #aaa);
 }
 
+/* 右侧固定行位：锐评 / 搬运理由 / 视频内容。宽度写死，整列左边界才对得齐 */
+
+.tl-verdict {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 0 0 400px;
+  max-width: 42%;
+  min-width: 0;
+  margin-left: 4px;
+  padding: 2px 4px 2px 14px;
+  border-left: 1px solid var(--k-color-divider, #dce0e5);
+  cursor: inherit;
+}
+
+.vd-row {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 8px;
+  min-width: 0;
+}
+
+.vd-label {
+  align-self: start;
+  padding-top: 1px;
+  color: var(--k-color-primary, #527ca6);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.vd-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin: 0;
+  color: var(--k-text-normal, #555);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* 标签颜色固定：搬运理由棕、视频内容绿；占位行只把正文调灰 */
+
+.vd-row.reason .vd-label { color: var(--k-color-warning-shade, #a26b13); }
+.vd-row.content .vd-label { color: var(--k-color-success-shade, #2f7d47); }
+
+.vd-row.content .vd-text { color: var(--k-text-light, #888); }
+.vd-row.empty .vd-text { color: var(--k-text-light, #bbb); }
+
+@media (max-width: 1000px) {
+  .tl-card { flex-wrap: wrap; }
+  .tl-verdict {
+    flex: 1 1 100%;
+    max-width: none;
+    margin-left: 0;
+    padding: 8px 0 0;
+    border-left: 0;
+    border-top: 1px solid var(--k-color-divider, #dce0e5);
+  }
+}
+
 @media (max-width: 720px) {
-  .tl-item { grid-template-columns: 0 24px 1fr; }
+  .tl-item { grid-template-columns: 0 24px minmax(0, 1fr); }
   .tl-time { display: none; }
   .tl-cover { flex-basis: 140px; height: 79px; }
 }

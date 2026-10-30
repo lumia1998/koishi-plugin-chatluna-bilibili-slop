@@ -1,6 +1,6 @@
 {
   "name": "koishi-plugin-chatluna-bilibili-slop",
-  "version": "0.3.0-alpha.1",
+  "version": "0.3.0-alpha.2",
   "description": "个人使用，不推荐任何人下载。B站能力注册为 ChatLuna 工具，配置全部在控制台面板里。",
   "type": "commonjs",
   "main": "lib/index.cjs",

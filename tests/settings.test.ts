@@ -22,7 +22,6 @@ test('默认值：三种发布方式里只开群推送，三个互动开关全�
     assert.equal(cfg.summaryModel, '', '默认不挂模型，日报只列清单')
     assert.deepEqual(cfg.keywords, [])
     assert.deepEqual(cfg.targetAuthors, DEFAULT_TARGET_AUTHORS)
-    assert.deepEqual(cfg.channels, [])
     assert.deepEqual(cfg.mentionUids, [])
 })
 
@@ -30,6 +29,7 @@ test('normalize 丢弃未知键，并按目标类型归一', () => {
     const cfg = normalize({
         ownerUid: 12345, keywords: [' 赤石 ', '', 42, '抽象'],
         publishGroup: 'false', commentPerHour: '999', perRun: -3,
+        // 旧版本里的群组频道配置：已经迁到「发回调用会话」，读到时直接丢弃
         channels: ['onebot:123456', 'bad', 'qq:group1'],
         unknownKey: 'should be dropped',
     })
@@ -38,7 +38,7 @@ test('normalize 丢弃未知键，并按目标类型归一', () => {
     assert.equal(cfg.publishGroup, false)
     assert.equal(cfg.commentPerHour, 30) // 钳到上限
     assert.equal(cfg.perRun, 1)         // 钳到下限
-    assert.deepEqual(cfg.channels, ['onebot:123456', 'qq:group1'])
+    assert.equal('channels' in cfg, false, '群组频道已不存在')
     assert.equal('unknownKey' in cfg, false)
 })
 
@@ -63,10 +63,10 @@ test('SettingsStore：首次启动写默认值，update 落盘并可重新读回
         const store = new SettingsStore(dir)
         assert.deepEqual(await store.init(), defaultSettings())
 
-        const next = await store.update({ ownerUid: '99', allowComment: true, channels: ['onebot:1'] })
+        const next = await store.update({ ownerUid: '99', allowComment: true, dmUid: '42' })
         assert.equal(next.ownerUid, '99')
         assert.equal(next.allowComment, true)
-        assert.deepEqual(next.channels, ['onebot:1'])
+        assert.equal(next.dmUid, '42')
 
         const raw = JSON.parse(await readFile(join(dir, 'settings.json'), 'utf8'))
         assert.equal(raw.ownerUid, '99')

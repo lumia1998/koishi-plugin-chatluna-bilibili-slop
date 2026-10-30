@@ -97,7 +97,7 @@ export interface ShuttleRecord {
     delivery: ('comment' | 'dm' | 'group')[]
 }
 
-/** 一条观看记录：`bili_video` 每次成功解析视频时写一条，控制台「观看历史」的数据源 */
+/** 一条品鉴记录：`bili_video` 每次成功解析视频时写一条，控制台「品鉴历史」的数据源 */
 export interface ViewRecord {
     bvid: string
     title: string
@@ -110,6 +110,40 @@ export interface ViewRecord {
     at: string
     /** 这次读到的正文来自哪里 */
     source?: 'subtitle' | 'asr' | 'summary' | 'none'
+    /** 视频简介（截断），正文拿不到时也能看出讲什么 */
+    description?: string
+    /** 这次读到的正文开头（截断），品鉴页右侧「视频内容」 */
+    excerpt?: string
+    /** 模型看完视频后写的锐评，由 `bili_take` 写入 */
+    take?: string
+    /** 锐评写入时间（ISO） */
+    takeAt?: string
+    /** 搬运理由：读取时从 `shuttles` 合并，不落盘 */
+    reason?: string
+}
+
+/**
+ * 一条互动记录：控制台「互动」时间线的数据源。
+ *
+ * 自己发出去的评论由 `state.comments` 台账推导，不落这个表；
+ * 这个表只存私信（双向）和别人发来的 @ / 回复，读取时才和台账合并。
+ */
+export interface InteractionRecord {
+    /** 去重键：`in:<kind>:<id>` / `dm:<messageId>` */
+    id: string
+    /** out = 我做的互动，in = 别人对我做的 */
+    direction: 'out' | 'in'
+    kind: 'comment' | 'reply' | 'thread' | 'at' | 'dm'
+    /** ISO 时间 */
+    at: string
+    bvid?: string
+    title?: string
+    peerUid?: string
+    peerName?: string
+    /** 评论 rpid：用来把「别人回复你」和「你回复他」对起来 */
+    rpid?: string
+    /** 正文：out 是我发的，in 是对方发的 */
+    text: string
 }
 
 /** B站 @ 提醒 / 回复提醒 */
@@ -133,7 +167,7 @@ export interface State {
     watch: Record<string, number>
     /** v3：搬运记录，照片墙与日报的数据源 */
     shuttles: Record<string, ShuttleRecord>
-    /** v4：看过的视频，控制台「观看历史」的数据源 */
+    /** v4：看过的视频，控制台「品鉴历史」的数据源 */
     views: Record<string, ViewRecord>
 }
 /**

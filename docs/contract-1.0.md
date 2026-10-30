@@ -118,13 +118,15 @@ export interface PublishContext {
   settings: Settings
   api: Api
   store: Store
+  /** 调用工具的会话；有它才推群（发回这个会话），控制台手动搬运没有 */
+  session?: Session
   logger: { info(...a: any[]): void, warn(...a: any[]): void }
 }
 
 /** 三个通道各自独立；返回实际成功的通道 */
 export function deliver(pub: PublishContext, record: ShuttleRecord): Promise<('comment' | 'dm' | 'group')[]>
 
-/** 群推送卡片 */
+/** 群推送卡片：直接 session.send() 发回调用工具的会话 */
 export function groupCard(record: ShuttleRecord): Fragment
 
 /** 私信正文（≤470 字） */
@@ -191,23 +193,24 @@ interface ConsoleStatus {
 }
 ```
 
-客户端：`ctx.page({ path: '/bili-slop', name: '刷B站', ... })` 注册单页，内部两个 tab（配置 / 总结）。
+客户端：`ctx.page({ path: '/bili-slop', name: '刷B站', ... })` 注册单页，内部五个 tab（配置 / 搬运历史 / 品鉴历史 / 互动 / 日报）。
 控制台客户端通过 `ctx.console.addListener` 发 RPC，服务端通过 `ctx.console.addListener` 接收。
 
 ---
 
-## 8. 工具（8 个，`src/index.ts` 注册）
+## 8. 工具（9 个，`src/index.ts` 注册）
 
 | 名称 | 中文 | 何时注册 |
 | --- | --- | --- |
 | `bili_video` | 看视频 | 始终 |
+| `bili_take` | 视频锐评 | 始终 |
 | `bili_shuttle` | 搬视频 | 始终 |
 | `bili_search` | B站搜索 | 始终 |
 | `bili_user` | B站用户查询 | 始终 |
 | `bili_status` | B站状态查询 | 始终 |
 | `bili_subscribe` | B站订阅 | 始终 |
 | `bili_manage` | 视频管理 | 始终 |
-| `bili_inbox` | 信息回复 | `allowComment || allowReplyRoot || allowReplySub` 时注册 |
+| `bili_inbox` | 信息回复 | 始终（读取永远可用，回复按三个互动开关逐条拦） |
 
 旧名（`bili_comments` / `bili_comment` / `bili_reply` / `bili_dm` / `bili_find_slop` / `bili_follow`）**不再注册**。
 
@@ -216,7 +219,7 @@ interface ConsoleStatus {
 ## 9. 验收标准
 
 1. `npm run build` 与 `npm run typecheck` 全绿。
-2. `npm test` 全绿（含新增的 settings / publish / summary / store v3 迁移用例）。
-3. 控制台「刷B站」页可打开，两个 tab 都有内容，改配置后 `settings.json` 落盘。
-4. 8 个工具的 name/description 正确，`bili_inbox` 随开关出现/消失。
-5. 三种发布方式各自可独立开关；群推送用 `ctx.broadcast(channels, fragment)`。
+2. `npm test` 全绿（含新增的 settings / publish / summary / store 迁移用例）。
+3. 控制台「刷B站」页可打开，五个 tab 都有内容，改配置后 `settings.json` 落盘。
+4. 9 个工具的 name/description 正确。
+5. 三种发布方式各自可独立开关；群推送用调用工具的 `Session`（`session.send()`）发回当前会话，控制台手动搬运不推群。

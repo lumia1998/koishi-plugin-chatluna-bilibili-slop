@@ -1,11 +1,12 @@
 import { h } from 'koishi'
 import type { Api } from './api.js'
 import type { Config } from './config.js'
+import type { InteractionLog } from './interactions.js'
 import { parseUserInput, resolveVideo } from './resolve.js'
 import { rank } from './score.js'
 import { scout } from './scout.js'
 import type { Store } from './store.js'
-import type { InboxItem, Publication, ShuttleRecord, Video, VideoStats } from './types.js'
+import type { InboxItem, InteractionRecord, Publication, ShuttleRecord, Video, VideoStats } from './types.js'
 
 const CONTENT_LIMIT = 12000
 const COMMENT_RATE_LIMIT = 10 // top-level comments per hour across all videos
@@ -15,6 +16,8 @@ const SHOWN_TTL = 7 * 86400_000
 const SHUTTLE_LIMIT = 20
 const SHUTTLE_CONTENT_LIMIT = 500
 const DANMAKU_LIMIT = 30
+/** 品鉴页「视频内容」展示的正文长度 */
+const EXCERPT_LIMIT = 240
 
 /** 发布通道；与 `ShuttleRecord.delivery` 同义 */
 export type Channel = 'comment' | 'dm' | 'group'
@@ -114,7 +117,9 @@ function timestamp(value: unknown): number {
 export class Service {
     constructor(readonly cfg: Config, readonly store: Store,
         private readonly recognize?: (api: Api, bvid: string) => Promise<string>,
-        private readonly recheck?: (api: Api, record: Publication) => void) {}
+        private readonly recheck?: (api: Api, record: Publication) => void,
+        /** 互动时间线；不传就不记（测试和纯解析场景用不到） */
+        private readonly interactions?: InteractionLog) {}
 
     /** Resolves any accepted video reference and returns meta + content slice. */
     async video(api: Api, input: string, offset = 0): Promise<VideoResult> {
@@ -173,12 +178,19 @@ export class Service {
             source = 'summary'
         }
         if (!text) source = 'none'
-        // 每次成功解析都记一条观看历史，控制台的「观看历史」页读它
+        // 每次成功解析都记一条品鉴历史，控制台的「品鉴历史」页读它
+        const excerpt = (text || '').replace(/\s+/g, ' ').trim().slice(0, EXCERPT_LIMIT)
         await this.store.locked(async () => {
+            const previous = this.store.state.views[bvid]
             this.store.state.views[bvid] = {
                 bvid: item.bvid, title: item.title, author: item.author, uid: item.uid,
                 url: item.url, pic: item.pic, duration: item.duration, at: new Date().toISOString(),
                 source: source!,
+                description: (item.description || '').replace(/\s+/g, ' ').trim().slice(0, EXCERPT_LIMIT),
+                excerpt,
+                // 同一条视频再被看一次时，之前写过的锐评保留
+                take: previous?.take,
+                takeAt: previous?.takeAt,
             }
             await this.store.save()
         })
@@ -199,6 +211,31 @@ export class Service {
             result.nextOffset = offset + CONTENT_LIMIT
         }
         return result
+    }
+
+    /**
+     * 给一条视频写锐评（模型看完内容后的一句话点评）。
+     * 没看过这条视频也能写：补一条最小的品鉴记录，免得锐评落到空处。
+     */
+    async take(api: Api, input: string, take: string) {
+        const text = (take || '').trim()
+        if (!text) throw new Error('锐评不能为空')
+        const bvid = await resolveVideo(input)
+        const known = this.store.state.views[bvid]
+        const item = known ? undefined : await api.info(bvid)
+        const recordAt = new Date().toISOString()
+        await this.store.locked(async () => {
+            const base = this.store.state.views[bvid] ?? {
+                bvid: item!.bvid, title: item!.title, author: item!.author, uid: item!.uid,
+                url: item!.url, pic: item!.pic, duration: item!.duration, at: recordAt,
+                source: 'none' as const,
+                description: (item!.description || '').replace(/\s+/g, ' ').trim().slice(0, EXCERPT_LIMIT),
+            }
+            this.store.state.views[bvid] = { ...base, take: text, takeAt: recordAt }
+            await this.store.save()
+        })
+        const saved = this.store.state.views[bvid]
+        return { bvid, title: saved.title, take: saved.take, at: saved.takeAt }
     }
 
     /** Hot comments, or replies inside a thread when root is given. */
@@ -382,6 +419,11 @@ export class Service {
         if (image) elements.push(h.image(image))
         const ids = await api.dm(uid, elements)
         if (!ids.length) throw new Error('适配器未返回私信 ID，发送结果未知')
+        await this.record([{
+            id: `dm:${ids[0]}`, direction: 'out', kind: 'dm',
+            at: new Date().toISOString(), peerUid: uid,
+            text: body || '[图片]',
+        }])
         return { uid, messageIds: ids }
     }
 
@@ -604,7 +646,7 @@ export class Service {
         const uid = await this.dmUid(api, input)
         const { data } = await api.messages(uid, limit)
         const rows = (data || []) as RawMessage[]
-        return rows.map((message) => ({
+        const items = rows.map((message) => ({
             id: String(message.id || ''),
             kind: 'dm' as const,
             fromUid: String(message.user?.id || ''),
@@ -613,26 +655,72 @@ export class Service {
             at: timestamp(message.timestamp),
             scope: 'dm' as const,
         }))
+        // 只记对方发来的；自己发的私信在发送时就进日志了
+        await this.remember(items.filter((item) => item.fromUid !== api.bot.selfId))
+        return items
     }
 
     private async readInbox(api: Api, kind: InboxOptions['kind'], limit: number): Promise<InboxItem[]> {
         if (kind === 'dm') return this.dmItems(api, undefined, limit)
         if (kind) {
             const items = await api.inbox(limit)
-            return items.filter((item) => {
+            const picked = items.filter((item) => {
                 if (kind === 'at') return item.kind === 'at'
                 if (kind === 'thread') return item.kind === 'reply' && item.scope === 'thread'
                 return item.kind === 'reply' && item.scope !== 'thread'
             }).slice(0, limit)
+            await this.remember(picked)
+            return picked
         }
         const [dm, box] = await Promise.all([
             attempt(() => this.dmItems(api, undefined, limit)),
             attempt(() => api.inbox(limit)),
         ])
         if (!dm && !box) throw new Error('读取收件箱失败，请检查登录状态')
+        if (box) await this.remember(box)
         return [...(dm || []), ...(box || [])]
             .sort((a, b) => b.at - a.at)
             .slice(0, limit)
+    }
+
+    /** 收件箱里读到的消息记进互动时间线；写失败只丢时间线，不影响读取结果 */
+    private async remember(items: InboxItem[]) {
+        if (!this.interactions || !items.length) return
+        const rows: InteractionRecord[] = []
+        for (const item of items) {
+            if (item.kind === 'like') continue
+            const kind: InteractionRecord['kind'] = item.kind === 'at'
+                ? 'at'
+                : item.kind === 'dm'
+                    ? 'dm'
+                    : item.scope === 'thread' ? 'thread' : 'reply'
+            const id = item.id || `${item.fromUid}:${item.rpid || '0'}:${item.at}`
+            rows.push({
+                id: `in:${kind}:${id}`,
+                direction: 'in',
+                kind,
+                at: new Date(item.at).toISOString(),
+                bvid: item.bvid,
+                rpid: item.rpid,
+                peerUid: item.fromUid || undefined,
+                peerName: item.fromName || undefined,
+                title: item.bvid ? this.titleOf(item.bvid) : undefined,
+                text: item.text,
+            })
+        }
+        await this.record(rows)
+    }
+
+    /** 只写时间线：写盘失败不打断调用方 */
+    private async record(rows: InteractionRecord[]) {
+        if (!this.interactions || !rows.length) return
+        try {
+            await this.interactions.add(rows)
+        } catch { /* 时间线只是展示，记不上不影响互动本身 */ }
+    }
+
+    private titleOf(bvid: string): string | undefined {
+        return this.store.state.views[bvid]?.title || this.store.state.shuttles[bvid]?.title
     }
 
     private async sendDm(api: Api, target: string | undefined, text: string) {

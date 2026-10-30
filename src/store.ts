@@ -7,7 +7,7 @@ const SHOWN_TTL = 7 * 86400_000
 const TRANSCRIPT_TTL = 30 * 86400_000
 /** 搬运记录是日报 / 搬运历史的数据源，留 90 天 */
 const SHUTTLE_TTL = 90 * 86400_000
-/** 观看历史留 90 天，和搬运记录一致 */
+/** 品鉴历史留 90 天，和搬运记录一致 */
 const VIEW_TTL = 90 * 86400_000
 
 interface LegacyState {
@@ -35,7 +35,7 @@ export function migrate(raw: LegacyState): State {
         if (!state.comments || !state.transcripts || !state.shown || !state.watch || !state.shuttles) {
             throw new Error('损坏的台账格式')
         }
-        // v3 → v4：补上观看历史表，其它原样保留
+        // v3 → v4：补上品鉴历史表，其它原样保留
         return { ...state, version: 4, views: {} }
     }
     if (raw.version === 2) {
@@ -43,7 +43,7 @@ export function migrate(raw: LegacyState): State {
         if (!state.comments || !state.transcripts || !state.shown || !state.watch) {
             throw new Error('损坏的台账格式')
         }
-        // v2 → v3 → v4：补上搬运记录与观看历史表，其它原样保留
+        // v2 → v3 → v4：补上搬运记录与品鉴历史表，其它原样保留
         return { ...state, version: 4, shuttles: {}, views: {} }
     }
     if (raw.version === 1) {

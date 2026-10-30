@@ -8,7 +8,8 @@ import { join } from 'node:path'
  * 控制台（`src/console.ts` + `client/`）读写，落盘为 `<data>/bilibili-slop/settings.json`。
  *
  * 分组顺序 = WebUI「配置页」从上到下的顺序：
- *   账号状态 → 主人 → 偏好设置 → 发布方式 → 互动方式 → 解析方式 → 日报 → 高级
+ *   账号状态 → 主人 → 偏好设置 → 发布方式 → 解析方式 → 日报 → 高级
+ * 互动相关（评论 / 回复开关、评论台账）单独放在「互动」页。
  */
 export interface Settings {
     // —— 账号状态 ——
@@ -36,10 +37,8 @@ export interface Settings {
     publishComment: boolean
     /** 通过 B站私信推送 */
     publishDm: boolean
-    /** 推送到 Koishi 群组 */
+    /** 推送到调用工具的 Koishi 会话（群里调用就发群，私聊调用就发私聊） */
     publishGroup: boolean
-    /** 群组目标，格式 platform:channelId，如 onebot:123456789 */
-    channels: string[]
     /** 私信收件人 UID；留空用 ownerUid */
     dmUid: string
 
@@ -104,7 +103,6 @@ export function defaultSettings(): Settings {
         publishComment: false,
         publishDm: false,
         publishGroup: true,
-        channels: [],
         dmUid: '',
         allowComment: false,
         allowReplyRoot: false,
@@ -171,7 +169,6 @@ export function normalize(raw: unknown): Settings {
     out.dmUid = String(out.dmUid || '')
     // 模型全名是 `platform/name`；填半截（只有名字）没法加载，直接当没配
     out.summaryModel = /^[^/\s]+\/\S+$/.test(String(out.summaryModel || '')) ? String(out.summaryModel) : ''
-    out.channels = (out.channels as string[]).filter((item) => /^[\w.-]+:[\w.-]+$/.test(item))
     return out as unknown as Settings
 }
 

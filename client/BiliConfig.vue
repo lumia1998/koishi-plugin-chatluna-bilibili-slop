@@ -43,31 +43,6 @@
           <p v-else class="qr-fallback">二维码生成失败，<a :href="qr.url" target="_blank" rel="noreferrer">点这里打开登录页</a></p>
           <p class="qr-tip">用 B站 App 扫描二维码，在手机上确认登录。</p>
         </div>
-
-        <div v-if="ledger.length" class="ledger">
-          <div class="ledger-head">
-            <span>评论台账</span>
-            <span class="ledger-count">{{ ledger.length }} 条</span>
-          </div>
-          <div class="ledger-scroll">
-            <table>
-              <thead>
-                <tr><th>时间</th><th>状态</th><th>视频</th><th>正文</th></tr>
-              </thead>
-              <tbody>
-                <tr v-for="item in ledger" :key="item.bvid + item.at">
-                  <td class="cell-time">{{ moment(item.at) }}</td>
-                  <td>
-                    <span class="tag" :class="stateClass(item.state)">{{ STATE_TEXT[item.state] || item.state }}</span>
-                    <span v-if="item.visible" class="tag subtle">{{ VISIBLE_TEXT[item.visible] || item.visible }}</span>
-                  </td>
-                  <td><a :href="`https://www.bilibili.com/video/${item.bvid}`" target="_blank" rel="noreferrer">{{ item.bvid }}</a></td>
-                  <td class="cell-text" :title="item.text">{{ item.text }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
       </section>
 
       <!-- 2. 主人 -->
@@ -151,12 +126,8 @@
           <input type="checkbox" class="k-switch" :checked="settings.publishDm" @change="emitPatch({ publishDm: checked($event) })">
         </SettingRow>
 
-        <SettingRow label="Koishi 群推送" desc="用 ctx.broadcast 把卡片发到群组。">
+        <SettingRow label="Koishi 群推送" desc="卡片发到调用工具的那个会话：哪个群调用就发哪个群，私聊调用就发回私聊。控制台手动搬运没有会话，不会推群。">
           <input type="checkbox" class="k-switch" :checked="settings.publishGroup" @change="emitPatch({ publishGroup: checked($event) })">
-        </SettingRow>
-
-        <SettingRow v-if="settings.publishGroup" label="群组频道" desc="格式 platform:channelId。" block>
-          <TagInput :model-value="settings.channels" placeholder="onebot:123456789" @update:model-value="emitPatch({ channels: $event })" />
         </SettingRow>
 
         <SettingRow v-if="settings.publishDm" label="私信收件人" desc="留空则发给主人 UID。">
@@ -171,9 +142,12 @@
         </SettingRow>
       </section>
 
-      <!-- 5. 互动方式 -->
+      <!-- 5. 互动 -->
       <section :id="anchor('interact')" class="k-card group">
-        <div class="group-head"><h3>互动方式</h3><span class="group-tip">三条独立开关</span></div>
+        <div class="group-head">
+          <h3>互动</h3>
+          <span class="group-tip">控制 `bili_inbox` 能发什么；改完立刻生效</span>
+        </div>
 
         <SettingRow label="在视频下评论" desc="发表一级评论。">
           <input type="checkbox" class="k-switch" :checked="settings.allowComment" @change="emitPatch({ allowComment: checked($event) })">
@@ -188,8 +162,8 @@
         </SettingRow>
 
         <SettingRow label="每小时评论上限" desc="一级评论和回复合计；1–30。">
-          <div class="number-range">
-            <input type="range" min="1" max="30" step="1" :value="settings.commentPerHour" @input="emitPatch({ commentPerHour: integer($event) })">
+          <div class="inline-field">
+            <input type="range" class="k-range" min="1" max="30" step="1" :value="settings.commentPerHour" @input="emitPatch({ commentPerHour: integer($event) })">
             <input class="k-number" type="number" min="1" max="30" :value="settings.commentPerHour" @change="emitPatch({ commentPerHour: integer($event) })">
           </div>
         </SettingRow>
@@ -340,7 +314,7 @@ const NAV = [
     { id: 'owner', label: '主人' },
     { id: 'preference', label: '偏好设置' },
     { id: 'publish', label: '发布方式' },
-    { id: 'interact', label: '互动方式' },
+    { id: 'interact', label: '互动' },
     { id: 'parse', label: '解析方式' },
     { id: 'report', label: '日报' },
     { id: 'advanced', label: '高级' },
@@ -407,21 +381,6 @@ function loadModels() {
 
 const status = ref<ConsoleStatus | null>(null)
 const statusBusy = ref(false)
-
-/** 台账按时间倒序，最新的在最上面 */
-const ledger = computed(() => {
-    const list = status.value?.ledger || []
-    return [...list].sort((a, b) => String(b.at).localeCompare(String(a.at)))
-})
-
-const STATE_TEXT: Record<string, string> = { sent: '已发送', sending: '发送中', unknown: '结果未知' }
-const VISIBLE_TEXT: Record<string, string> = { public: '公开可见', pending: '仅登录可见', missing: '未查到' }
-
-function stateClass(state: string) {
-    if (state === 'sent') return 'ok'
-    if (state === 'unknown') return 'danger'
-    return 'subtle'
-}
 
 const featureList = computed(() => {
     const features = status.value?.features
@@ -903,90 +862,6 @@ onBeforeUnmount(() => {
 
 .rail-last-err { display: block; color: var(--k-color-danger, #e66); }
 
-/* 评论台账 */
-
-.ledger {
-  margin-top: 14px;
-  border: 1px solid var(--k-color-divider-light, #f0f2f5);
-  border-radius: 10px;
-  overflow: hidden;
-}
-
-.ledger-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 12px;
-  background: var(--k-hover-bg, #f7f8fa);
-  color: var(--k-text-normal, #555);
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.ledger-count { color: var(--k-text-light, #999); font-weight: 400; }
-
-.ledger-scroll { max-height: 280px; overflow: auto; }
-
-.ledger table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 12px;
-}
-
-.ledger th {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  padding: 6px 12px;
-  background: var(--k-card-bg, #fff);
-  border-bottom: 1px solid var(--k-color-divider-light, #f0f2f5);
-  color: var(--k-text-light, #999);
-  font-weight: 500;
-  text-align: left;
-  white-space: nowrap;
-}
-
-.ledger td {
-  padding: 7px 12px;
-  border-bottom: 1px solid var(--k-color-divider-light, #f0f2f5);
-  color: var(--k-text-normal, #555);
-  vertical-align: middle;
-}
-
-.ledger tr:last-child td { border-bottom: 0; }
-
-.ledger a {
-  color: var(--k-color-primary, #527ca6);
-  text-decoration: none;
-  font-variant-numeric: tabular-nums;
-}
-
-.ledger a:hover { text-decoration: underline; }
-
-.cell-time { white-space: nowrap; color: var(--k-text-light, #999); font-variant-numeric: tabular-nums; }
-
-.cell-text {
-  max-width: 320px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.tag {
-  display: inline-block;
-  padding: 1px 7px;
-  border-radius: 999px;
-  font-size: 11px;
-  line-height: 1.7;
-  background: var(--k-hover-bg, #f3f5f8);
-  color: var(--k-text-light, #999);
-  white-space: nowrap;
-}
-
-.tag + .tag { margin-left: 4px; }
-.tag.ok { background: var(--k-color-success-fade, #eaf7ee); color: var(--k-color-success-shade, #2f7d47); }
-.tag.danger { background: var(--k-color-danger-fade, #fdecec); color: var(--k-color-danger-shade, #c33); }
-
 /* —— 表单控件 —— */
 
 .inline-field {
@@ -1022,6 +897,11 @@ onBeforeUnmount(() => {
 .k-number:focus,
 .k-text:focus { border-color: var(--k-color-primary, #527ca6); }
 
+.k-range {
+  width: 140px;
+  accent-color: var(--k-color-primary, #527ca6);
+}
+
 .k-switch {
   width: 38px;
   height: 20px;
@@ -1048,17 +928,6 @@ onBeforeUnmount(() => {
 
 .k-switch:checked { background: var(--k-color-primary, #527ca6); }
 .k-switch:checked::after { transform: translateX(18px); }
-
-.number-range {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.number-range input[type='range'] {
-  width: 140px;
-  accent-color: var(--k-color-primary, #527ca6);
-}
 
 /* 太窄就放弃右侧栏，状态排到内容上方 */
 @media (max-width: 1240px) {

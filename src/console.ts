@@ -1,6 +1,7 @@
 import type { Context, Session } from 'koishi'
 import type {} from '@koishijs/plugin-console'
 import { pollQrLogin, startQrLogin, type AuthStore, type LoginState } from './auth.js'
+import type { InteractionLog } from './interactions.js'
 import type { ReportModel } from './report.js'
 import type { Settings, SettingsStore } from './settings.js'
 import type { Store } from './store.js'
@@ -30,6 +31,74 @@ export interface ConsoleStatus {
     }
     ledger: { bvid: string, text: string, at: string, state: string, visible?: string }[]
     lastRun?: { at: string, picks: number, errors: string[] }
+}
+
+/** 控制台「互动」时间线的一条：评论从台账推导，私信和收到的 @ / 回复来自互动日志 */
+export interface InteractionItem {
+    id: string
+    direction: 'out' | 'in'
+    kind: 'comment' | 'reply' | 'thread' | 'at' | 'dm'
+    at: string
+    bvid?: string
+    title?: string
+    peerUid?: string
+    peerName?: string
+    text: string
+    /** 只有自己发出去的评论带 */
+    state?: string
+    visible?: string
+}
+
+/** 正文开头的 @昵称：`comment()` 组装的，正文本身禁 @，所以不会误伤 */
+const MENTION = /@([^\s@]+)/g
+
+/** 时间线最多给这么多条，再多页面也看不完 */
+const TIMELINE_LIMIT = 200
+
+/**
+ * 合并两个来源：
+ * - `state.comments` 台账 → 自己发出去的评论 / 回复 / 楼中楼（含 @ 了谁）
+ * - `interactions.json` → 别人发来的 @ / 回复 / 私信，和自己发出去的私信
+ */
+function timeline(store: Store, log: InteractionLog): InteractionItem[] {
+    const inbound = log.list()
+    const titleOf = (bvid: string) =>
+        store.state.views[bvid]?.title || store.state.shuttles[bvid]?.title
+    const items: InteractionItem[] = []
+
+    for (const record of Object.values(store.state.comments)) {
+        // 一级评论没有 parent；root === parent 是回复楼层，否则是楼中楼
+        const kind: InteractionItem['kind'] = !record.parent
+            ? 'comment'
+            : record.root && record.root !== record.parent ? 'thread' : 'reply'
+        const names = [...record.text.matchAll(MENTION)].map((match) => match[1])
+        // 回复对象是谁：从读到的收件箱里按 rpid 对一下，对不上就不显示名字
+        const peer = kind === 'comment' ? undefined : inbound.find((item) =>
+            item.direction === 'in' && item.rpid
+            && (item.rpid === record.parent || item.rpid === record.root))
+        items.push({
+            id: `out:${record.at}:${record.bvid}:${record.rpid || ''}`,
+            direction: 'out',
+            kind,
+            at: record.at,
+            bvid: record.bvid,
+            title: titleOf(record.bvid),
+            peerName: names.join('、') || peer?.peerName,
+            peerUid: peer?.peerUid,
+            text: record.text,
+            state: record.state,
+            visible: record.visible,
+        })
+    }
+
+    for (const item of inbound) {
+        items.push({
+            ...item,
+            title: item.title || (item.bvid ? titleOf(item.bvid) : undefined),
+        })
+    }
+
+    return items.sort((a, b) => b.at.localeCompare(a.at)).slice(0, TIMELINE_LIMIT)
 }
 
 /** 面板里所有 RPC 的统一权限下限：和 Settings.authority 的默认值一致 */
@@ -75,6 +144,7 @@ declare module '@koishijs/console' {
         'bili-slop/summary/generate'(input?: { day?: string }): Promise<{ report: string, model: string }>
         'bili-slop/history'(): Promise<ShuttleRecord[]>
         'bili-slop/views'(): Promise<ViewRecord[]>
+        'bili-slop/interactions'(): Promise<InteractionItem[]>
     }
 }
 
@@ -91,6 +161,8 @@ export interface ConsoleDeps {
     models: () => ReportModel[]
     /** 用 settings.summaryModel 调模型写某天的日报 */
     report: (day: string) => Promise<string>
+    /** 互动时间线的入站数据（收到的 @ / 回复 / 私信） */
+    interactions: InteractionLog
 }
 
 /**
@@ -166,9 +238,16 @@ export function mountConsole(ctx: Context, deps: ConsoleDeps): void {
         Object.values(store.state.shuttles).sort((a, b) => b.at.localeCompare(a.at)),
     { authority: AUTHORITY })
 
-    // 观看历史页：`bili_video` 每次成功解析都会记一条
+    // 品鉴历史页：`bili_video` 每次成功解析都会记一条，右侧展示锐评 / 搬运理由 / 正文
     console.addListener('bili-slop/views', async () =>
-        Object.values(store.state.views).sort((a, b) => b.at.localeCompare(a.at)),
+        Object.values(store.state.views)
+            .map((record) => ({ ...record, reason: store.state.shuttles[record.bvid]?.reason }))
+            .sort((a, b) => b.at.localeCompare(a.at)),
+    { authority: AUTHORITY })
+
+    // 互动页：台账里的评论 + 互动日志，按时间倒序合并
+    console.addListener('bili-slop/interactions', async () =>
+        timeline(store, deps.interactions),
     { authority: AUTHORITY })
 
     // 总结页的「AI 写日报」：慢（一次模型调用），前端按钮要自己处理 loading

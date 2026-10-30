@@ -1,5 +1,6 @@
-import { h, type Context, type Fragment } from 'koishi'
+import { h, type Context, type Fragment, type Session } from 'koishi'
 import type { Api } from './api.js'
+import type { InteractionLog } from './interactions.js'
 import type { Settings } from './settings.js'
 import type { Store } from './store.js'
 import { clock } from './summary.js'
@@ -21,6 +22,10 @@ export interface PublishContext {
     settings: Settings
     api: Api
     store: Store
+    /** 调用工具的会话：群推送直接发回这个会话，不再靠配置里的频道列表 */
+    session?: Session
+    /** 互动时间线：私信投递也记一条，可省略 */
+    interactions?: InteractionLog
     logger: { info(...args: any[]): void, warn(...args: any[]): void }
 }
 
@@ -163,30 +168,27 @@ async function publishDm(pub: PublishContext, record: ShuttleRecord): Promise<bo
     }
     const ids = await pub.api.dm(target, [h.text(dmText(record))])
     if (!ids?.length) throw new Error('适配器未返回私信 ID，发送结果未知')
+    // 时间线只是展示，记不上不影响投递结果
+    await pub.interactions?.add([{
+        id: `dm:${ids[0]}`, direction: 'out', kind: 'dm', at: new Date().toISOString(),
+        bvid: record.bvid, title: record.title, peerUid: target, text: dmText(record),
+    }]).catch(() => {})
     pub.logger.info('私信已发送：%s → %s', record.bvid, target)
     return true
 }
 
-/** 推送到 Koishi 群组；channels 为 platform:channelId 数组 */
+/**
+ * 推送到调用工具的会话：在哪个群调的工具就发回哪个群，私聊调用就发回私聊。
+ * 没有会话（控制台手动搬运、定时任务）时明确跳过，不猜频道。
+ */
 async function publishGroup(pub: PublishContext, record: ShuttleRecord): Promise<boolean> {
-    const channels = (pub.settings.channels || []).filter((item) => typeof item === 'string' && /^[\w.-]+:[\w.-]+$/.test(item))
-    if (!channels.length) {
-        pub.logger.info('群推送跳过：channels 未配置（格式 platform:channelId）')
+    const session = pub.session
+    if (!session) {
+        pub.logger.info('群推送跳过：%s 没有会话上下文（控制台手动搬运不推群）', record.bvid)
         return false
     }
-    // broadcast 对没有在线 bot 的平台是静默空转；先看一眼有没有在线 bot，免得记成「已推送」
-    const live = new Set((pub.ctx.bots || []).filter((item) => item.status === 1).map((item) => item.platform))
-    const reachable = channels.filter((item) => live.has(item.split(':')[0]))
-    if (!reachable.length) {
-        pub.logger.warn('群推送跳过：%s 里没有在线 bot，无法投递（%s）',
-            [...new Set(channels.map((item) => item.split(':')[0]))].join('、'), channels.join(' '))
-        return false
-    }
-    if (reachable.length !== channels.length) {
-        pub.logger.warn('群推送：%s 没有在线 bot，已跳过', channels.filter((item) => !reachable.includes(item)).join(' '))
-    }
-    await pub.ctx.broadcast(reachable, groupCard(record))
-    pub.logger.info('群推送已发送：%s → %d 个频道', record.bvid, reachable.length)
+    await session.send(groupCard(record))
+    pub.logger.info('会话推送已发送：%s → %s%s', record.bvid, session.platform, session.channelId)
     return true
 }
 

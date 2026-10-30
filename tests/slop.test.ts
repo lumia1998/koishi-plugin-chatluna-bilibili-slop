@@ -380,7 +380,7 @@ test('台账迁移：v1 → v4（seen 转 shown）、v2 / v3 → v4（补 shuttl
         assert.deepEqual(fromV2.state.shuttles, {})
         assert.deepEqual(fromV2.state.views, {})
 
-        // v3 → v4：只补观看历史表，搬运记录原样保留
+        // v3 → v4：只补品鉴历史表，搬运记录原样保留
         const v3 = {
             version: 3, comments: {}, transcripts: {}, shown: {}, watch: {},
             shuttles: { [BV]: { bvid: BV, at: '2024-01-01T00:00:00+08:00' } },
@@ -439,10 +439,10 @@ function mockCtx(dir: string) {
 
 const DEFAULT_TOOLS = [
     'bili_inbox', 'bili_manage', 'bili_search', 'bili_shuttle',
-    'bili_status', 'bili_subscribe', 'bili_user', 'bili_video',
+    'bili_status', 'bili_subscribe', 'bili_take', 'bili_user', 'bili_video',
 ]
 
-test('插件加载：原生配置页为空；注册 8 个工具并挂上控制台 RPC', async () => {
+test('插件加载：原生配置页为空；注册 9 个工具并挂上控制台 RPC', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'bili-plugin-'))
     const { ctx, tools, listeners, ready } = mockCtx(dir)
     try {

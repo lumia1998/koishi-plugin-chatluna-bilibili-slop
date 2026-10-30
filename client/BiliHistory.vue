@@ -9,15 +9,12 @@
         <button type="button" class="k-button primary" :disabled="shuttleBusy" @click="shuttle">
           {{ shuttleBusy ? '搬运中…' : '立即搬一轮' }}
         </button>
-        <button type="button" class="k-button" :disabled="verifyBusy" @click="verify">
-          {{ verifyBusy ? '复核中…' : '复核评论' }}
-        </button>
         <button type="button" class="k-button frameless" :disabled="loading" @click="load">
           {{ loading ? '刷新中…' : '刷新' }}
         </button>
       </div>
       <p v-if="actionMessage" class="action-message">{{ actionMessage }}</p>
-      <p class="desc">「立即搬一轮」按当前偏好筛选后按发布方式推送；「复核评论」重新检查之前发出去的评论是否还在。</p>
+      <p class="desc">「立即搬一轮」按当前偏好筛选后按发布方式推送。控制台没有会话，所以只走评论和私信，不推群；群推送请让 ChatLuna 在群里调 `bili_shuttle`。</p>
     </section>
 
     <section class="k-card timeline-card">
@@ -136,7 +133,6 @@ const CHANNEL_TEXT: Record<string, string> = {
 const records = ref<ShuttleRecord[]>([])
 const loading = ref(false)
 const shuttleBusy = ref(false)
-const verifyBusy = ref(false)
 const actionMessage = ref('')
 const selected = ref<ShuttleRecord | null>(null)
 
@@ -159,16 +155,6 @@ function shuttle() {
     })
     .catch((err: Error) => emit('error', `搬运失败：${err.message}`))
     .finally(() => { shuttleBusy.value = false })
-}
-
-function verify() {
-  if (verifyBusy.value) return
-  verifyBusy.value = true
-  actionMessage.value = ''
-  call('bili-slop/verify')
-    .then(() => { actionMessage.value = '复核完成，结果见配置页的评论台账。' })
-    .catch((err: Error) => emit('error', `复核失败：${err.message}`))
-    .finally(() => { verifyBusy.value = false })
 }
 
 function firstChar(title: string): string {

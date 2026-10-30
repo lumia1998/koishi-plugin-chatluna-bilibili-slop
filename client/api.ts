@@ -20,6 +20,22 @@ export interface Rpc {
   'bili-slop/summary/generate': { args: [{ day?: string }], result: { report: string, model: string } }
   'bili-slop/history': { args: [], result: ShuttleRecord[] }
   'bili-slop/views': { args: [], result: ViewRecord[] }
+  'bili-slop/interactions': { args: [], result: InteractionItem[] }
+}
+
+/** 互动时间线的一条（与服务端 `src/console.ts` 的 `InteractionItem` 一致） */
+export interface InteractionItem {
+  id: string
+  direction: 'out' | 'in'
+  kind: 'comment' | 'reply' | 'thread' | 'at' | 'dm'
+  at: string
+  bvid?: string
+  title?: string
+  peerUid?: string
+  peerName?: string
+  text: string
+  state?: string
+  visible?: string
 }
 
 /** 配置页下拉里的一个 ChatLuna 模型；name 是 `platform/name` 全名 */

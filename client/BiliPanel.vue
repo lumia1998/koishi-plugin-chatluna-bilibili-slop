@@ -40,8 +40,9 @@
         @error="showError"
       />
       <BiliHistory v-show="active === 'history'" @error="showError" />
-      <BiliDaily v-show="active === 'daily'" @error="showError" />
       <BiliViews v-show="active === 'views'" @error="showError" />
+      <BiliInteract v-show="active === 'interact'" @error="showError" />
+      <BiliDaily v-show="active === 'daily'" @error="showError" />
     </template>
   </div>
 </template>
@@ -51,6 +52,7 @@ import { onBeforeUnmount, onMounted, ref } from 'vue'
 import BiliConfig from './BiliConfig.vue'
 import BiliDaily from './BiliDaily.vue'
 import BiliHistory from './BiliHistory.vue'
+import BiliInteract from './BiliInteract.vue'
 import BiliViews from './BiliViews.vue'
 import { call } from './api'
 import type { Settings } from '../src/settings.js'
@@ -71,14 +73,19 @@ const tabs = [
     icon: tabIcon('<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>'),
   },
   {
+    id: 'views',
+    label: '品鉴历史',
+    icon: tabIcon('<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>'),
+  },
+  {
+    id: 'interact',
+    label: '互动',
+    icon: tabIcon('<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>'),
+  },
+  {
     id: 'daily',
     label: '日报',
     icon: tabIcon('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>'),
-  },
-  {
-    id: 'views',
-    label: '观看历史',
-    icon: tabIcon('<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>'),
   },
 ] as const
 

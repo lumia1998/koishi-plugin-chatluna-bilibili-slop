@@ -9,6 +9,7 @@ import { transcribe } from './asr.js'
 import { AuthStore, checkLogin, refreshCredential } from './auth.js'
 import { createNativeBot, type NativeBot } from './bili.js'
 import { Config } from './config.js'
+import { InteractionLog } from './interactions.js'
 import { aiReport, listModels } from './report.js'
 import { Service, RECHECK_DELAY } from './service.js'
 import { SettingsStore, type Settings } from './settings.js'
@@ -52,6 +53,10 @@ export async function apply(ctx: Context, _pluginConfig: Config) {
     const settings = new SettingsStore(dataDir)
     await settings.init()
 
+    // 互动时间线单独一个文件：坏了只丢时间线，不影响评论台账
+    const interactions = new InteractionLog(dataDir)
+    await interactions.init()
+
     const logger = ctx.logger(name)
 
     const auth = new AuthStore(dataDir)
@@ -93,7 +98,7 @@ export async function apply(ctx: Context, _pluginConfig: Config) {
             } catch (err) { logger.warn('评论复核失败：%s', (err as Error).message) }
         }, RECHECK_DELAY)
     }
-    const service = new Service(cfg, store, (api, bvid) => transcribe(ctx, api, bvid), recheck)
+    const service = new Service(cfg, store, (api, bvid) => transcribe(ctx, api, bvid), recheck, interactions)
 
     async function access(session?: Session) {
         if (!session) throw new Error('缺少会话身份，不能调用 B站工具')
@@ -107,15 +112,17 @@ export async function apply(ctx: Context, _pluginConfig: Config) {
 
     function tool<T extends z.ZodRawShape>(toolName: string,
         description: string | (() => string), shape: T,
-        fn: (args: z.infer<z.ZodObject<T>>, api: Api) => Promise<unknown> | unknown) {
+        fn: (args: z.infer<z.ZodObject<T>>, api: Api, session?: Session) => Promise<unknown> | unknown) {
         // 描述可以是函数：面板里改了开关后，下一次调用就能看到新的能力说明，不用重载插件
         const describe = () => typeof description === 'function' ? description() : description
         const create = () => new DynamicStructuredTool({
             name: toolName, description: describe(), schema: z.object(shape),
             func: async (args, _manager, runnable) => {
                 try {
-                    await access(runnable?.configurable?.session as Session | undefined)
-                    return JSON.stringify({ ok: true, result: await fn(args, makeApi()) })
+                    // 会话既用来验权限，也用来决定群推送发到哪
+                    const session = runnable?.configurable?.session as Session | undefined
+                    await access(session)
+                    return JSON.stringify({ ok: true, result: await fn(args, makeApi(), session) })
                 } catch (err) {
                     logger.warn('%s: %s', toolName, (err as Error).message)
                     return JSON.stringify({ ok: false, error: (err as Error).message })
@@ -170,7 +177,7 @@ export async function apply(ctx: Context, _pluginConfig: Config) {
         return '二维码已发送，扫码后这里会提示结果。'
     }
 
-    /** 不经过模型时用证据拼一句理由（控制台「立即搬一轮」走这里） */
+    /** 不经过模型时用证据拼一句理由（控制台「立即搬一轮」走这里，没有会话，不推群） */
     async function shuttleNow(reason?: string) {
         const api = makeApi()
         return service.shuttle(api, {
@@ -182,13 +189,14 @@ export async function apply(ctx: Context, _pluginConfig: Config) {
         })
     }
 
-    async function deliverAll(picks: import('./types.js').ShuttleRecord[]) {
+    /** session 就是工具调用的那个会话：群推送发回这里，没会话就只走评论/私信 */
+    async function deliverAll(picks: import('./types.js').ShuttleRecord[], session?: Session) {
         const { deliver } = await import('./publish.js')
         const delivered = new Set<'comment' | 'dm' | 'group'>()
         for (const record of picks) {
             try {
                 for (const channel of await deliver({
-                    ctx, settings: settings.value, api: makeApi(), store, logger,
+                    ctx, settings: settings.value, api: makeApi(), store, session, interactions, logger,
                 }, record)) delivered.add(channel)
             } catch (err) {
                 logger.warn('投递 %s 失败：%s', record.bvid, (err as Error).message)
@@ -204,7 +212,7 @@ export async function apply(ctx: Context, _pluginConfig: Config) {
             (args, api) => service.video(api, args.video, args.offset))
 
         tool('bili_shuttle',
-            '按配置里的偏好（关键词、目标作者、时长、过滤词）召回并搬运屎视频 / 抽象视频。会在评论区 @ 主人、发私信、推送到群里（取决于配置页打开了哪几种发布方式）。reason 必填：你必须现场写一句「为什么搬这条」，会作为评论正文和推送理由展示给使用者。想搬指定视频时传 video，跳过召回直接搬这一条。返回本轮搬了哪些、投递到哪些通道。' + EXTERNAL,
+            '按配置里的偏好（关键词、目标作者、时长、过滤词）召回并搬运屎视频 / 抽象视频。会在评论区 @ 主人、发私信，群推送发回到你当前这个会话（取决于配置页打开了哪几种发布方式）。reason 必填：你必须现场写一句「为什么搬这条」，会作为评论正文和推送理由展示给使用者。想搬指定视频时传 video，跳过召回直接搬这一条。返回本轮搬了哪些、投递到哪些通道。' + EXTERNAL,
             {
                 video: video.optional().describe('只搬这一条视频，跳过召回'),
                 keywords: words.optional().describe('本轮召回关键词，默认用配置'),
@@ -212,14 +220,22 @@ export async function apply(ctx: Context, _pluginConfig: Config) {
                 reason: z.string().min(2).max(60).describe('搬运理由：看了这条视频内容后写的一句话，会展示在评论和推送里'),
                 limit: z.number().int().min(1).max(10).optional().describe('本轮最多搬几条，默认用配置'),
             },
-            (args, api) => service.shuttle(api, {
+            (args, api, session) => service.shuttle(api, {
                 bvid: args.video,
                 keywords: args.keywords,
                 ups: args.authors,
                 reason: args.reason,
                 limit: args.limit,
-                deliver: (picks) => deliverAll(picks),
+                deliver: (picks) => deliverAll(picks, session),
             }))
+
+        tool('bili_take',
+            '看完一条视频后，写下你对它的锐评（一句话，可毒舌可认真，但必须针对视频里真实出现的内容，不许凭空编）。锐评会显示在控制台「品鉴历史」里。video 接受 BV 号、av 号、视频网址或 b23.tv 短链。' + EXTERNAL,
+            {
+                video,
+                take: z.string().min(2).max(200).describe('锐评正文：针对视频真实内容的点评，一两句话'),
+            },
+            (args, api) => service.take(api, args.video, args.take))
 
         tool('bili_search',
             '按关键词搜索 B站视频或用户。type=video 时 order 可选 totalrank/click/pubdate/dm/stow/scores；type=user 时返回 UID、昵称、签名、粉丝数。' + EXTERNAL,
@@ -330,6 +346,7 @@ export async function apply(ctx: Context, _pluginConfig: Config) {
             verify: () => service.verify(makeApi()),
             models: () => listModels(ctx),
             report: (day) => aiReport(ctx, store, day, settings.value.summaryModel),
+            interactions,
         })
     })
 
